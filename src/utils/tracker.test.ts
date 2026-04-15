@@ -1,0 +1,149 @@
+import { describe, it, expect } from 'vitest';
+import { updateTracks, classifyProximity } from './tracker';
+import type { Detection } from './yolo';
+
+// Helper to create a detection
+function det(cls: string, x: number, y: number, w: number, h: number, score = 0.9): Detection {
+  return { bbox: [x, y, w, h], class: cls, score };
+}
+
+describe('classifyProximity', () => {
+  it('returns "danger" for area > 0.5', () => {
+    expect(classifyProximity(0.6)).toBe('danger');
+    expect(classifyProximity(0.51)).toBe('danger');
+    expect(classifyProximity(1.0)).toBe('danger');
+  });
+
+  it('returns "near" for area between 0.25 and 0.5', () => {
+    expect(classifyProximity(0.3)).toBe('near');
+    expect(classifyProximity(0.5)).toBe('near');
+    expect(classifyProximity(0.26)).toBe('near');
+  });
+
+  it('returns "safe" for area <= 0.25', () => {
+    expect(classifyProximity(0.1)).toBe('safe');
+    expect(classifyProximity(0.25)).toBe('safe');
+    expect(classifyProximity(0.0)).toBe('safe');
+  });
+});
+
+describe('updateTracks', () => {
+  it('creates new tracks for unmatched detections', () => {
+    const tracks = updateTracks([], [det('person', 10, 10, 50, 100)]);
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].class).toBe('person');
+    expect(tracks[0].age).toBe(0);
+    expect(tracks[0].announced).toBe(false);
+    expect(tracks[0].proximityZone).toBe('safe');
+    expect(tracks[0].reannounceCount).toBe(0);
+  });
+
+  it('assigns unique IDs to new tracks', () => {
+    const tracks = updateTracks([], [
+      det('person', 10, 10, 50, 100),
+      det('car', 200, 200, 80, 60),
+    ]);
+    expect(tracks).toHaveLength(2);
+    expect(tracks[0].id).not.toBe(tracks[1].id);
+  });
+
+  it('matches detections to existing tracks by class + IoU', () => {
+    // Frame 1: create track
+    const t1 = updateTracks([], [det('person', 100, 100, 50, 100)]);
+    const id = t1[0].id;
+
+    // Frame 2: same class, overlapping bbox → should match
+    const t2 = updateTracks(t1, [det('person', 105, 102, 50, 100)]);
+    expect(t2).toHaveLength(1);
+    expect(t2[0].id).toBe(id);
+    expect(t2[0].age).toBe(0);
+  });
+
+  it('does not match detections of different classes', () => {
+    const t1 = updateTracks([], [det('person', 100, 100, 50, 100)]);
+    // Same bbox but different class → new track + old one ages
+    const t2 = updateTracks(t1, [det('car', 100, 100, 50, 100)]);
+    expect(t2).toHaveLength(2);
+    expect(t2.find(t => t.class === 'person')!.age).toBe(1);
+    expect(t2.find(t => t.class === 'car')!.age).toBe(0);
+  });
+
+  it('ages unmatched tracks and drops them after MAX_AGE', () => {
+    let tracks = updateTracks([], [det('person', 100, 100, 50, 100)]);
+
+    // Run 10 frames with no detections — track should age each frame
+    for (let i = 1; i <= 10; i++) {
+      tracks = updateTracks(tracks, []);
+      if (i <= 10) {
+        expect(tracks).toHaveLength(1);
+        expect(tracks[0].age).toBe(i);
+      }
+    }
+
+    // Frame 11: track should be dropped (age > MAX_AGE=10)
+    tracks = updateTracks(tracks, []);
+    expect(tracks).toHaveLength(0);
+  });
+
+  it('preserves announced flag across matched frames', () => {
+    let tracks = updateTracks([], [det('person', 100, 100, 50, 100)]);
+    tracks[0].announced = true;
+
+    tracks = updateTracks(tracks, [det('person', 102, 101, 50, 100)]);
+    expect(tracks[0].announced).toBe(true);
+  });
+
+  it('computes centroid and area for new tracks', () => {
+    const tracks = updateTracks([], [det('person', 100, 200, 50, 80)]);
+    expect(tracks[0].lastCentroid).toEqual([125, 240]); // x + w/2, y + h/2
+    expect(tracks[0].lastArea).toBe(4000); // 50 * 80
+  });
+
+  it('computes EMA-smoothed velocity on matched tracks', () => {
+    const t1 = updateTracks([], [det('person', 100, 100, 50, 100)]);
+    // Move 20px to the right
+    const t2 = updateTracks(t1, [det('person', 120, 100, 50, 100)]);
+
+    // vx should be EMA_ALPHA * 20 + (1 - EMA_ALPHA) * 0 = 0.3 * 20 = 6
+    expect(t2[0].vx).toBeCloseTo(6, 1);
+    expect(t2[0].vy).toBeCloseTo(0, 1);
+  });
+
+  it('computes area growth rate for approaching objects', () => {
+    const t1 = updateTracks([], [det('person', 100, 100, 50, 100)]);
+    // Slightly larger bbox (still high IoU overlap): 55 * 110 = 6050 vs 50 * 100 = 5000
+    const t2 = updateTracks(t1, [det('person', 100, 100, 55, 110)]);
+
+    // Growth rate = EMA_ALPHA * ((6050 - 5000) / 5000) = 0.3 * 0.21 = 0.063
+    expect(t2[0].areaGrowthRate).toBeGreaterThan(0);
+    // Verify matched track (same id, not a new track)
+    expect(t2).toHaveLength(1);
+    expect(t2[0].id).toBe(t1[0].id);
+  });
+
+  it('handles multiple detections with greedy matching', () => {
+    // Two persons, close together
+    const t1 = updateTracks([], [
+      det('person', 100, 100, 50, 100),
+      det('person', 300, 100, 50, 100),
+    ]);
+    expect(t1).toHaveLength(2);
+
+    // Both move slightly
+    const t2 = updateTracks(t1, [
+      det('person', 103, 102, 50, 100),
+      det('person', 303, 101, 50, 100),
+    ]);
+    expect(t2).toHaveLength(2);
+    // IDs should persist
+    expect(t2.map(t => t.id).sort()).toEqual(t1.map(t => t.id).sort());
+  });
+
+  it('handles zero-area edge case in growth rate', () => {
+    // Detection with zero area shouldn't crash
+    const t1 = updateTracks([], [det('person', 100, 100, 0, 0)]);
+    const t2 = updateTracks(t1, [det('person', 100, 100, 50, 100)]);
+    // lastArea was 0, so growth rate should be 0 (guarded)
+    expect(t2[0].areaGrowthRate).toBe(0);
+  });
+});

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VoiceEye</title>
+    <script>
+      (function() {
+        // Fix for "This document requires 'TrustedHTML' assignment" errors
+        if (window.trustedTypes && window.trustedTypes.createPolicy) {
+          try {
+            if (!window.trustedTypes.defaultPolicy) {
+              window.trustedTypes.createPolicy('default', {
+                createHTML: (string) => string,
+                createScriptURL: (string) => string,
+                createScript: (string) => string,
+              });
+              console.log('Trusted Types default policy established.');
+            }
+          } catch (e) {
+            console.error('Failed to create Trusted Types policy:', e);
+          }
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

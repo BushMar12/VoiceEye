@@ -1,0 +1,128 @@
+name: Download Model from ClearML
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: "ClearML Task ID containing the ONNX model artifact"
+        required: true
+        type: string
+      artifact_name:
+        description: "Artifact name in the ClearML task"
+        required: false
+        default: "fastlane_onnx_model"
+        type: string
+
+jobs:
+  download-and-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ClearML SDK
+        run: pip install clearml
+
+      - name: Download model artifact
+        env:
+          CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
+          CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
+          CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
+        run: |
+          python - <<'PYEOF'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from clearml import Task
+
+          task_id = "${{ inputs.task_id }}"
+          artifact_name = "${{ inputs.artifact_name }}"
+
+          print(f"Fetching task {task_id}...")
+          task = Task.get_task(task_id=task_id)
+
+          print(f"Downloading artifact '{artifact_name}'...")
+          local_path = task.artifacts[artifact_name].get_local_copy()
+          onnx_path = Path(local_path)
+
+          # Compute checksum
+          sha256 = hashlib.sha256()
+          with open(onnx_path, "rb") as f:
+              for chunk in iter(lambda: f.read(8192), b""):
+                  sha256.update(chunk)
+          checksum = sha256.hexdigest()
+
+          # Get metadata
+          metadata = task.artifacts[artifact_name].metadata or {}
+          size_mb = onnx_path.stat().st_size / (1024 * 1024)
+
+          print(f"Model: {onnx_path.name}")
+          print(f"Size:  {size_mb:.2f} MB")
+          print(f"SHA-256: {checksum}")
+
+          # Verify checksum if available in metadata
+          expected = metadata.get("sha256", "")
+          if expected and expected != checksum:
+              print(f"CHECKSUM MISMATCH! Expected: {expected}")
+              exit(1)
+          elif expected:
+              print("Checksum verified OK")
+
+          # Copy to deployment path
+          dest = Path("public/models/yolo26n.onnx")
+          dest.parent.mkdir(parents=True, exist_ok=True)
+          import shutil
+          shutil.copy2(onnx_path, dest)
+          print(f"Copied to {dest}")
+
+          # Write metadata for PR description
+          info = {
+              "task_id": task_id,
+              "checksum": checksum,
+              "size_mb": round(size_mb, 2),
+              **{k: str(v) for k, v in metadata.items()},
+          }
+          with open("/tmp/model_info.json", "w") as f:
+              json.dump(info, f, indent=2)
+          PYEOF
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="model-update-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+          git add public/models/yolo26n.onnx
+          git commit -m "Update YOLO26n ONNX model from ClearML task ${{ inputs.task_id }}"
+
+          # Build PR body from metadata
+          INFO=$(cat /tmp/model_info.json)
+          MAP50=$(echo "$INFO" | python -c "import sys,json; print(json.load(sys.stdin).get('map50','N/A'))")
+          SIZE=$(echo "$INFO" | python -c "import sys,json; print(json.load(sys.stdin).get('size_mb','N/A'))")
+          CHECKSUM=$(echo "$INFO" | python -c "import sys,json; print(json.load(sys.stdin).get('checksum','N/A'))")
+
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "Update YOLO26n model (mAP@50: $MAP50)" \
+            --body "$(cat <<EOF
+          ## Model Update
+
+          | Property | Value |
+          |----------|-------|
+          | ClearML Task | \`${{ inputs.task_id }}\` |
+          | mAP@50 | $MAP50 |
+          | Size | ${SIZE} MB |
+          | SHA-256 | \`${CHECKSUM}\` |
+
+          Downloaded from ClearML artifact \`${{ inputs.artifact_name }}\`.
+          EOF
+          )"
