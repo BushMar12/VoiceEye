@@ -79,6 +79,7 @@ export const DEFAULT_TIER: 1 | 2 | 3 = 3;
 
 export const TIER_WEIGHT: Record<1 | 2 | 3, number> = { 1: 3.0, 2: 1.5, 3: 0.3 };
 export const ZONE_WEIGHT: Record<ProximityZone, number> = { danger: 3.0, near: 1.5, safe: 0.5 };
+export const EVICTION_AGE_PENALTY = 0.01;
 export const APPROACHING_GROWTH_THRESHOLD_ATTN = 0.05;
 export const APPROACHING_BOOST = 1.0;
 

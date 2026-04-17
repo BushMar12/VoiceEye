@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { updateTracks, classifyProximity } from './tracker';
+import { MAX_TRACKS } from '../config';
 import type { Detection } from './yolo';
 
 // Helper to create a detection
@@ -147,8 +148,6 @@ describe('updateTracks', () => {
     expect(t2[0].areaGrowthRate).toBe(0);
   });
 });
-
-import { MAX_TRACKS } from '../config';
 
 describe('updateTracks — eviction at MAX_TRACKS', () => {
   it('evicts the lowest-priority track when total would exceed MAX_TRACKS', () => {

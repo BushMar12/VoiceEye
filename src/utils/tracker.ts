@@ -10,6 +10,7 @@ import {
   DEFAULT_TIER,
   TIER_WEIGHT,
   ZONE_WEIGHT,
+  EVICTION_AGE_PENALTY,
 } from '../config';
 
 export type ProximityZone = 'safe' | 'near' | 'danger';
@@ -56,11 +57,12 @@ export function classifyProximity(areaPercent: number): ProximityZone {
   return 'safe';
 }
 
-function evictionScore(t: Track): number {
+// Higher score = kept, lower = evicted.
+function trackPriority(t: Track): number {
   const tier = HAZARD_TIER[t.class] ?? DEFAULT_TIER;
   const tierW = TIER_WEIGHT[tier];
   const zoneW = ZONE_WEIGHT[t.proximityZone];
-  return tierW * zoneW - t.age * 0.01;
+  return tierW * zoneW - t.age * EVICTION_AGE_PENALTY;
 }
 
 /**
@@ -144,7 +146,7 @@ export function updateTracks(tracks: Track[], detections: Detection[]): Track[] 
   }
 
   if (updated.length > MAX_TRACKS) {
-    updated.sort((a, b) => evictionScore(b) - evictionScore(a));
+    updated.sort((a, b) => trackPriority(b) - trackPriority(a));
     updated.length = MAX_TRACKS;
   }
 
