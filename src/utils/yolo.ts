@@ -26,7 +26,7 @@ const YOLO_CLASSES: string[] = [
   'toothbrush',
 ];
 
-import { YOLO_INPUT_SIZE, YOLO_DEFAULT_CONF, YOLO_IOU_THRESHOLD } from '../config';
+import { YOLO_INPUT_SIZE, YOLO_DEFAULT_CONF, YOLO_IOU_THRESHOLD, MAX_DETECTIONS_PER_FRAME } from '../config';
 
 // ── Reusable preprocessing resources (lazy-init singleton) ──────────────
 let _canvas: OffscreenCanvas | HTMLCanvasElement | null = null;
@@ -170,6 +170,9 @@ export async function runYolo(
             score: score,
           });
         }
+        if (detections.length > MAX_DETECTIONS_PER_FRAME) {
+          detections.sort((a, b) => b.score - a.score).length = MAX_DETECTIONS_PER_FRAME;
+        }
         return detections; // No manual NMS needed
       }
 
@@ -208,7 +211,7 @@ export async function runYolo(
         });
       }
 
-      return nms(detections, YOLO_IOU_THRESHOLD);
+      return nms(detections, YOLO_IOU_THRESHOLD).slice(0, MAX_DETECTIONS_PER_FRAME);
     } finally {
       Object.values(results).forEach(t => t.dispose?.());
     }
