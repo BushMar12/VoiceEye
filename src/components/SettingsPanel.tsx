@@ -110,6 +110,24 @@ const SettingsPanel: React.FC<Props> = ({ settings, onChange, onClose }) => {
             <span className="settings-toggle-thumb" />
           </button>
         </label>
+
+        {/* Verbosity */}
+        <label className="settings-row">
+          <span className="settings-label">Verbosity</span>
+          <div className="settings-control" style={{ display: 'flex', gap: 4 }}>
+            {(['quiet', 'normal', 'detailed'] as const).map(v => (
+              <button
+                key={v}
+                className={`glass-button${local.verbosity === v ? ' active' : ''}`}
+                onClick={() => update({ verbosity: v })}
+                aria-pressed={local.verbosity === v}
+                style={{ flex: 1, textTransform: 'capitalize', height: 36, fontSize: 13 }}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </label>
       </div>
     </div>
   );
