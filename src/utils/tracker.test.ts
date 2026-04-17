@@ -147,3 +147,38 @@ describe('updateTracks', () => {
     expect(t2[0].areaGrowthRate).toBe(0);
   });
 });
+
+import { MAX_TRACKS } from '../config';
+
+describe('updateTracks — eviction at MAX_TRACKS', () => {
+  it('evicts the lowest-priority track when total would exceed MAX_TRACKS', () => {
+    // Seed MAX_TRACKS existing tier-3 safe tracks
+    let tracks = updateTracks([], Array.from({ length: MAX_TRACKS }, (_, i) =>
+      det('book', i * 20, 0, 5, 5)));
+    expect(tracks).toHaveLength(MAX_TRACKS);
+
+    // New frame: all existing tracks continue AND one new tier-1 danger track enters
+    const continuing = tracks.map(t => det(t.class, t.bbox[0], t.bbox[1], t.bbox[2], t.bbox[3]));
+    const newHazard = det('car', 900, 300, 600, 600); // huge → danger zone
+    tracks = updateTracks(tracks, [...continuing, newHazard]);
+
+    // Still MAX_TRACKS — the car must be there; a book must have been evicted
+    expect(tracks).toHaveLength(MAX_TRACKS);
+    expect(tracks.some(t => t.class === 'car')).toBe(true);
+    expect(tracks.filter(t => t.class === 'book').length).toBe(MAX_TRACKS - 1);
+  });
+
+  it('never evicts a tier-1 danger track in favour of a tier-3 safe one', () => {
+    // One tier-1 danger track (a car) is seeded first
+    let tracks = updateTracks([], [det('car', 100, 100, 600, 600)]);
+    expect(tracks).toHaveLength(1);
+
+    // Fill the rest with tier-3 safe books
+    const fillers = Array.from({ length: MAX_TRACKS }, (_, i) => det('book', 900 + i, 0, 5, 5));
+    tracks = updateTracks(tracks, [det('car', 100, 100, 600, 600), ...fillers]);
+
+    // The car must still be present; we got to MAX_TRACKS (not MAX_TRACKS + 1)
+    expect(tracks).toHaveLength(MAX_TRACKS);
+    expect(tracks.some(t => t.class === 'car')).toBe(true);
+  });
+});

@@ -5,6 +5,11 @@ import {
   TRACKER_EMA_ALPHA,
   PROXIMITY_DANGER_THRESHOLD,
   PROXIMITY_NEAR_THRESHOLD,
+  MAX_TRACKS,
+  HAZARD_TIER,
+  DEFAULT_TIER,
+  TIER_WEIGHT,
+  ZONE_WEIGHT,
 } from '../config';
 
 export type ProximityZone = 'safe' | 'near' | 'danger';
@@ -49,6 +54,13 @@ export function classifyProximity(areaPercent: number): ProximityZone {
   if (areaPercent > PROXIMITY_DANGER_THRESHOLD) return 'danger';
   if (areaPercent > PROXIMITY_NEAR_THRESHOLD)   return 'near';
   return 'safe';
+}
+
+function evictionScore(t: Track): number {
+  const tier = HAZARD_TIER[t.class] ?? DEFAULT_TIER;
+  const tierW = TIER_WEIGHT[tier];
+  const zoneW = ZONE_WEIGHT[t.proximityZone];
+  return tierW * zoneW - t.age * 0.01;
 }
 
 /**
@@ -129,6 +141,11 @@ export function updateTracks(tracks: Track[], detections: Detection[]): Track[] 
         reannounceCount: 0,
       });
     }
+  }
+
+  if (updated.length > MAX_TRACKS) {
+    updated.sort((a, b) => evictionScore(b) - evictionScore(a));
+    updated.length = MAX_TRACKS;
   }
 
   return updated;
