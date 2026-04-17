@@ -34,7 +34,7 @@ export function useSpatialAudio() {
     }
   }, []);
 
-  const playBeep = useCallback(() => {
+  const playBeep = useCallback((freq = BEEP_FREQUENCY_HZ, durationS = BEEP_DURATION_S) => {
     try {
       if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
       const ctx = audioCtxRef.current;
@@ -42,10 +42,10 @@ export function useSpatialAudio() {
       const gain = ctx.createGain();
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.frequency.value = BEEP_FREQUENCY_HZ;
+      osc.frequency.value = freq;
       gain.gain.value = BEEP_GAIN;
       osc.start();
-      osc.stop(ctx.currentTime + BEEP_DURATION_S);
+      osc.stop(ctx.currentTime + durationS);
     } catch { /* AudioContext unavailable */ }
   }, []);
 
