@@ -2,6 +2,8 @@ import type { Track, ProximityZone } from './tracker';
 import {
   HAZARD_TIER, DEFAULT_TIER, TIER_WEIGHT, ZONE_WEIGHT,
   APPROACHING_GROWTH_THRESHOLD_ATTN, APPROACHING_BOOST,
+  COOLDOWN_APPROACHING_MS, COOLDOWN_SUSTAINED_MS,
+  SUSTAINED_ENTRY_DELAY_MS, SUSTAINED_MAX_COUNT,
 } from '../config';
 
 export type AnnouncementReason = 'new' | 'zone-escalation' | 'approaching' | 'sustained';
@@ -77,4 +79,31 @@ export function computePriority(
   const zoneW = ZONE_WEIGHT[zone];
   const boost = areaGrowthRate > APPROACHING_GROWTH_THRESHOLD_ATTN ? APPROACHING_BOOST : 0;
   return tierW * zoneW * (1 + boost);
+}
+
+const ZONE_RANK: Record<ProximityZone, number> = { safe: 0, near: 1, danger: 2 };
+
+export function detectReason(
+  track: Track,
+  zone: ProximityZone,
+  cooldown: CooldownEntry | undefined,
+  now: number,
+): AnnouncementReason | null {
+  if (!cooldown) return 'new';
+
+  if (ZONE_RANK[zone] > ZONE_RANK[cooldown.lastZone]) return 'zone-escalation';
+
+  if (track.areaGrowthRate > APPROACHING_GROWTH_THRESHOLD_ATTN
+      && now - cooldown.lastSpokeAt > COOLDOWN_APPROACHING_MS) {
+    return 'approaching';
+  }
+
+  if (zone === 'danger'
+      && now - cooldown.dangerEnteredAt > SUSTAINED_ENTRY_DELAY_MS
+      && now - cooldown.lastSpokeAt > COOLDOWN_SUSTAINED_MS
+      && cooldown.sustainedCount < SUSTAINED_MAX_COUNT) {
+    return 'sustained';
+  }
+
+  return null;
 }
