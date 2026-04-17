@@ -1,4 +1,8 @@
 import type { Track, ProximityZone } from './tracker';
+import {
+  HAZARD_TIER, DEFAULT_TIER, TIER_WEIGHT, ZONE_WEIGHT,
+  APPROACHING_GROWTH_THRESHOLD_ATTN, APPROACHING_BOOST,
+} from '../config';
 
 export type AnnouncementReason = 'new' | 'zone-escalation' | 'approaching' | 'sustained';
 
@@ -61,4 +65,16 @@ export function createAttentionState(now: number): AttentionState {
     windowCount: 0,
     nextClusterId: 1,
   };
+}
+
+export function computePriority(
+  cls: string,
+  zone: ProximityZone,
+  areaGrowthRate: number,
+): number {
+  const tier = HAZARD_TIER[cls] ?? DEFAULT_TIER;
+  const tierW = TIER_WEIGHT[tier];
+  const zoneW = ZONE_WEIGHT[zone];
+  const boost = areaGrowthRate > APPROACHING_GROWTH_THRESHOLD_ATTN ? APPROACHING_BOOST : 0;
+  return tierW * zoneW * (1 + boost);
 }
