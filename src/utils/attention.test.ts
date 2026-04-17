@@ -118,3 +118,64 @@ describe('detectReason', () => {
     expect(detectReason(mockTrack(), 'danger', cd, 10000)).toBeNull();
   });
 });
+
+import { clusterTracks } from './attention';
+
+function trackAt(id: number, cls: string, x: number, y: number, w = 40, h = 80) {
+  return mockTrack({ ...mockTrack(), id, class: cls,
+    bbox: [x, y, w, h] as [number, number, number, number],
+    lastCentroid: [x + w / 2, y + h / 2] as [number, number],
+  });
+}
+
+describe('clusterTracks', () => {
+  const frameDiagonal = Math.hypot(1280, 720); // ~1469
+
+  it('returns no clusters for two same-class tracks (below min=3)', () => {
+    const tracks = [trackAt(1, 'person', 100, 100), trackAt(2, 'person', 120, 110)];
+    expect(clusterTracks(tracks, frameDiagonal)).toHaveLength(0);
+  });
+
+  it('clusters three same-class tracks within radius', () => {
+    const r = frameDiagonal * 0.1; // well within CLUSTER_RADIUS_FRAC=0.15
+    const tracks = [
+      trackAt(1, 'person', 500, 300),
+      trackAt(2, 'person', 500 + r / 3, 300),
+      trackAt(3, 'person', 500, 300 + r / 3),
+    ];
+    const clusters = clusterTracks(tracks, frameDiagonal);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].class).toBe('person');
+    expect(clusters[0].members).toHaveLength(3);
+  });
+
+  it('does not cluster same-class tracks spread beyond radius', () => {
+    const tracks = [
+      trackAt(1, 'person', 0, 0),
+      trackAt(2, 'person', 1200, 0),
+      trackAt(3, 'person', 600, 700),
+    ];
+    expect(clusterTracks(tracks, frameDiagonal)).toHaveLength(0);
+  });
+
+  it('does not cluster across different classes', () => {
+    const tracks = [
+      trackAt(1, 'person', 500, 300),
+      trackAt(2, 'car', 510, 300),
+      trackAt(3, 'dog', 520, 300),
+    ];
+    expect(clusterTracks(tracks, frameDiagonal)).toHaveLength(0);
+  });
+
+  it('computes cluster centroid as mean of member centroids', () => {
+    const tracks = [
+      trackAt(1, 'person', 100, 100),
+      trackAt(2, 'person', 110, 110),
+      trackAt(3, 'person', 120, 120),
+    ];
+    const [c] = clusterTracks(tracks, frameDiagonal);
+    // Centroids: (120,140), (130,150), (140,160) → mean (130,150)
+    expect(c.centroid[0]).toBeCloseTo(130);
+    expect(c.centroid[1]).toBeCloseTo(150);
+  });
+});

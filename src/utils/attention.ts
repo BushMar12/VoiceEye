@@ -4,6 +4,7 @@ import {
   APPROACHING_GROWTH_THRESHOLD_ATTN, APPROACHING_BOOST,
   COOLDOWN_APPROACHING_MS, COOLDOWN_SUSTAINED_MS,
   SUSTAINED_ENTRY_DELAY_MS, SUSTAINED_MAX_COUNT,
+  CLUSTER_MIN_MEMBERS, CLUSTER_RADIUS_FRAC,
 } from '../config';
 
 export type AnnouncementReason = 'new' | 'zone-escalation' | 'approaching' | 'sustained';
@@ -106,4 +107,54 @@ export function detectReason(
   }
 
   return null;
+}
+
+export interface RawCluster {
+  class: string;
+  members: Track[];
+  centroid: [number, number];
+}
+
+function centroidOf(t: Track): [number, number] {
+  return [t.bbox[0] + t.bbox[2] / 2, t.bbox[1] + t.bbox[3] / 2];
+}
+
+export function clusterTracks(tracks: Track[], frameDiagonal: number): RawCluster[] {
+  const byClass = new Map<string, Track[]>();
+  for (const t of tracks) {
+    const arr = byClass.get(t.class) ?? [];
+    arr.push(t);
+    byClass.set(t.class, arr);
+  }
+
+  const clusters: RawCluster[] = [];
+  const radius = frameDiagonal * CLUSTER_RADIUS_FRAC;
+
+  for (const [cls, members] of byClass) {
+    if (members.length < CLUSTER_MIN_MEMBERS) continue;
+
+    const used = new Set<number>();
+    for (let i = 0; i < members.length; i++) {
+      if (used.has(i)) continue;
+      const [sx, sy] = centroidOf(members[i]);
+      const group: Track[] = [members[i]];
+      used.add(i);
+
+      for (let j = i + 1; j < members.length; j++) {
+        if (used.has(j)) continue;
+        const [cx, cy] = centroidOf(members[j]);
+        if (Math.hypot(cx - sx, cy - sy) < radius) {
+          group.push(members[j]);
+          used.add(j);
+        }
+      }
+
+      if (group.length >= CLUSTER_MIN_MEMBERS) {
+        const mx = group.reduce((s, t) => s + centroidOf(t)[0], 0) / group.length;
+        const my = group.reduce((s, t) => s + centroidOf(t)[1], 0) / group.length;
+        clusters.push({ class: cls, members: group, centroid: [mx, my] });
+      }
+    }
+  }
+  return clusters;
 }
