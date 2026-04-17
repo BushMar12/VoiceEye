@@ -112,22 +112,23 @@ const SettingsPanel: React.FC<Props> = ({ settings, onChange, onClose }) => {
         </label>
 
         {/* Verbosity */}
-        <label className="settings-row">
+        <div className="settings-row" role="radiogroup" aria-label="Verbosity level">
           <span className="settings-label">Verbosity</span>
           <div className="settings-control" style={{ display: 'flex', gap: 4 }}>
-            {(['quiet', 'normal', 'detailed'] as const).map(v => (
+            {([['quiet', 'Quiet'], ['normal', 'Normal'], ['detailed', 'Detailed']] as const).map(([value, label]) => (
               <button
-                key={v}
-                className={`glass-button${local.verbosity === v ? ' active' : ''}`}
-                onClick={() => update({ verbosity: v })}
-                aria-pressed={local.verbosity === v}
-                style={{ flex: 1, textTransform: 'capitalize', height: 36, fontSize: 13 }}
+                key={value}
+                role="radio"
+                className={`glass-button${local.verbosity === value ? ' active' : ''}`}
+                onClick={() => update({ verbosity: value })}
+                aria-checked={local.verbosity === value}
+                style={{ flex: 1, height: 36, fontSize: 13 }}
               >
-                {v}
+                {label}
               </button>
             ))}
           </div>
-        </label>
+        </div>
       </div>
     </div>
   );
