@@ -1,16 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 
+export type Verbosity = 'quiet' | 'normal' | 'detailed';
+
 export interface AppSettings {
   ttsRate: number;
   confThreshold: number;
   hapticEnabled: boolean;
+  verbosity: Verbosity;
 }
 
 const DEFAULTS: AppSettings = {
   ttsRate: 1.0,
   confThreshold: 0.5,
   hapticEnabled: true,
+  verbosity: 'normal',
 };
 
 const STORAGE_KEY = 'voiceeye_settings';
