@@ -47,14 +47,11 @@ function mockTrack(overrides: Partial<{ areaGrowthRate: number }> = {}) {
     class: 'person',
     score: 0.9,
     age: 0,
-    announced: false,
     vx: 0, vy: 0,
     areaGrowthRate: 0,
     lastCentroid: [5, 5] as [number, number],
     lastArea: 100,
     proximityZone: 'safe' as const,
-    zoneEntryTime: 0,
-    reannounceCount: 0,
     ...overrides,
   };
 }

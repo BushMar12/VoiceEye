@@ -34,9 +34,35 @@ describe('updateTracks', () => {
     expect(tracks).toHaveLength(1);
     expect(tracks[0].class).toBe('person');
     expect(tracks[0].age).toBe(0);
-    expect(tracks[0].announced).toBe(false);
     expect(tracks[0].proximityZone).toBe('safe');
-    expect(tracks[0].reannounceCount).toBe(0);
+  });
+
+  it('classifies proximityZone from screenArea per frame', () => {
+    const screenArea = 800 * 600; // 480000
+    // 600*600 = 360000 → 75% → 'danger'
+    const danger = updateTracks([], [det('car', 0, 0, 600, 600)], screenArea);
+    expect(danger[0].proximityZone).toBe('danger');
+
+    // 400*350 = 140000 → 29% → 'near'
+    const near = updateTracks([], [det('car', 0, 0, 400, 350)], screenArea);
+    expect(near[0].proximityZone).toBe('near');
+
+    // 100*100 = 10000 → 2% → 'safe'
+    const safe = updateTracks([], [det('car', 0, 0, 100, 100)], screenArea);
+    expect(safe[0].proximityZone).toBe('safe');
+  });
+
+  it('updates proximityZone on a matched track when bbox grows', () => {
+    const screenArea = 800 * 600;
+    // Spawn a small safe car
+    const t1 = updateTracks([], [det('car', 100, 100, 100, 100)], screenArea);
+    expect(t1[0].proximityZone).toBe('safe');
+
+    // Grow it slightly (IoU above 0.3 keeps it the same track), still safe
+    // (200*200)/(800*600) ≈ 8% → safe
+    const t2 = updateTracks(t1, [det('car', 100, 100, 200, 200)], screenArea);
+    expect(t2[0].id).toBe(t1[0].id);
+    expect(t2[0].proximityZone).toBe('safe');
   });
 
   it('assigns unique IDs to new tracks', () => {
@@ -84,14 +110,6 @@ describe('updateTracks', () => {
     // Frame 11: track should be dropped (age > MAX_AGE=10)
     tracks = updateTracks(tracks, []);
     expect(tracks).toHaveLength(0);
-  });
-
-  it('preserves announced flag across matched frames', () => {
-    let tracks = updateTracks([], [det('person', 100, 100, 50, 100)]);
-    tracks[0].announced = true;
-
-    tracks = updateTracks(tracks, [det('person', 102, 101, 50, 100)]);
-    expect(tracks[0].announced).toBe(true);
   });
 
   it('computes centroid and area for new tracks', () => {

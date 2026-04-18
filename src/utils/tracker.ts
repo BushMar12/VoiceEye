@@ -21,7 +21,6 @@ export interface Track {
   class: string;
   score: number;
   age: number;            // frames since last matched detection (0 = active this frame)
-  announced: boolean;     // true once initial TTS has fired for this track
 
   // Velocity / motion
   vx: number;             // centroid x velocity (pixels/frame), EMA smoothed
@@ -30,10 +29,9 @@ export interface Track {
   lastCentroid: [number, number];
   lastArea: number;
 
-  // Proximity re-announcement
+  // Derived per-frame from bbox + screenArea — drives bbox color and eviction zone-weighting.
+  // Announcement gating is owned by the attention pipeline, not the tracker.
   proximityZone: ProximityZone;
-  zoneEntryTime: number;  // timestamp (ms) when current zone was entered
-  reannounceCount: number; // capped to prevent spam
 }
 
 let nextId = 1;
@@ -69,8 +67,15 @@ function trackPriority(t: Track): number {
  * Greedy IoU-based tracker with velocity estimation.
  * Matches detections to existing tracks by class + IoU overlap.
  * Computes per-track centroid velocity and area growth rate via EMA.
+ *
+ * `screenArea` is required so each track's `proximityZone` reflects the current
+ * frame — consumed by bbox color rendering and by trackPriority's zone weight.
+ * Pass 0 to skip zone classification (zones default to 'safe').
  */
-export function updateTracks(tracks: Track[], detections: Detection[]): Track[] {
+export function updateTracks(tracks: Track[], detections: Detection[], screenArea = 0): Track[] {
+  const zoneOf = (area: number): ProximityZone =>
+    screenArea > 0 ? classifyProximity(area / screenArea) : 'safe';
+
   const usedDetections = new Set<number>();
   const updated: Track[] = [];
 
@@ -111,6 +116,7 @@ export function updateTracks(tracks: Track[], detections: Detection[]): Track[] 
         areaGrowthRate,
         lastCentroid: [cx, cy],
         lastArea: area,
+        proximityZone: zoneOf(area),
       });
     } else {
       const aged = track.age + 1;
@@ -126,21 +132,19 @@ export function updateTracks(tracks: Track[], detections: Detection[]): Track[] 
       const det = detections[d];
       const cx = det.bbox[0] + det.bbox[2] / 2;
       const cy = det.bbox[1] + det.bbox[3] / 2;
+      const area = det.bbox[2] * det.bbox[3];
       updated.push({
         id: nextId++,
         bbox: det.bbox,
         class: det.class,
         score: det.score,
         age: 0,
-        announced: false,
         vx: 0,
         vy: 0,
         areaGrowthRate: 0,
         lastCentroid: [cx, cy],
-        lastArea: det.bbox[2] * det.bbox[3],
-        proximityZone: 'safe',
-        zoneEntryTime: Date.now(),
-        reannounceCount: 0,
+        lastArea: area,
+        proximityZone: zoneOf(area),
       });
     }
   }
