@@ -78,3 +78,46 @@ def test_class_coverage_fails_on_missing(tmp_path):
     (tmp_path / 'a.txt').write_text('0 0.5 0.5 0.1 0.1')
     with pytest.raises(ValidationError, match='missing classes'):
         check_class_coverage(tmp_path, nc=48)
+
+
+import json
+from training.data_prep.validate_dataset import (
+    build_report,
+    render_samples,
+)
+
+
+def test_build_report_counts_per_class(tmp_path):
+    (tmp_path / 'labels' / 'train').mkdir(parents=True)
+    (tmp_path / 'labels' / 'val').mkdir(parents=True)
+    (tmp_path / 'labels' / 'train' / 'coco_a.txt').write_text('0 0.5 0.5 0.1 0.1\n2 0.5 0.5 0.1 0.1')
+    (tmp_path / 'labels' / 'val' / 'oiv7_b.txt').write_text('47 0.5 0.5 0.1 0.1')
+    report = build_report(tmp_path, nc=48)
+    assert report['train']['per_class'][0] == 1
+    assert report['train']['per_class'][2] == 1
+    assert report['val']['per_class'][47] == 1
+    assert report['train']['per_source']['coco'] == 1
+    assert report['val']['per_source']['oiv7'] == 1
+
+
+def test_render_samples_writes_20_files(tmp_path):
+    # Create 25 dummy images + labels
+    from PIL import Image
+    (tmp_path / 'images').mkdir()
+    (tmp_path / 'labels').mkdir()
+    for i in range(25):
+        Image.new('RGB', (100, 100), 'black').save(tmp_path / 'images' / f"coco_{i}.jpg")
+        (tmp_path / 'labels' / f"coco_{i}.txt").write_text('0 0.5 0.5 0.3 0.3')
+    out = tmp_path / 'samples'
+    render_samples(tmp_path / 'images', tmp_path / 'labels', out, n=20, seed=42)
+    assert len(list(out.glob('*.jpg'))) == 20
+
+
+def test_warn_under_balanced_class(capsys, tmp_path):
+    from training.data_prep.validate_dataset import warn_class_balance
+    counts = {i: 500 for i in range(48)}
+    counts[3] = 50  # under 100 threshold
+    warn_class_balance(counts)
+    captured = capsys.readouterr()
+    assert 'WARN' in captured.out
+    assert 'motorcycle' in captured.out  # class 3 is 'motorcycle'
