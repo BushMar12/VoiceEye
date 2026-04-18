@@ -7,7 +7,7 @@ The fetcher is a thin wrapper around three public zip URLs. The converter
 from __future__ import annotations
 import json
 import shutil
-import subprocess
+import time
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -73,7 +73,6 @@ def _download_with_retry(url: str, dest: Path, attempts: int = 3) -> None:
     if dest.exists():
         return  # idempotent
     tmp = dest.with_suffix(dest.suffix + '.part')
-    import time
     delay = 1
     last_err = None
     for i in range(attempts):
