@@ -97,19 +97,41 @@ The runtime path is set in `src/utils/yolo.ts` as `ort.env.wasm.wasmPaths = '/or
 
 ## Tracking Behaviour
 
-- Each detected object gets a unique **Track ID** that persists across frames via IoU matching.
-- An object is **announced via TTS exactly once** per track lifetime (`track.announced` flag).
-- When an object **leaves frame** and re-enters, it gets a **new Track ID** and is announced again.
-- Tracks are dropped after **10 consecutive frames** without a matching detection.
+The Fast Lane has two stages: the **tracker** identifies *what's there*, and the **attention pipeline** decides *what to say*.
 
-### Velocity & Proximity
+### Tracker (`src/utils/tracker.ts`)
 
+- Each detected object gets a unique **Track ID** that persists across frames via IoU matching (`TRACKER_MIN_IOU = 0.3`).
+- Tracks are dropped after `TRACKER_MAX_AGE` (10) consecutive frames without a matching detection. When an object leaves frame and re-enters, it gets a new Track ID.
 - **EMA-smoothed velocity** (alpha=0.3) tracks centroid movement and area growth rate per frame.
-- **Proximity zones**: `safe` (<30% screen area), `near` (30–50%), `danger` (>50%).
-- **Approaching alert**: If `areaGrowthRate > 0.05` and class is hazardous → "Warning: car approaching, ~2.1m" + rapid triple-burst haptic.
-- **Zone-transition re-announcement**: When an object enters the `danger` zone → "Close: car, ~1.2m" (even if already announced).
-- **Sustained proximity**: If in `danger` zone >3 seconds → "Still close: car". Capped at 3 re-announcements per track.
-- **Color-coded bounding boxes**: green (safe), amber (near), red (danger).
+- **Proximity zones** recomputed every frame from `(bbox_area / screen_area)`: `safe` (<25%), `near` (25–50%), `danger` (>50%). Drives bbox color (green/amber/red) and priority scoring.
+- **Priority-based eviction** when total tracks would exceed `MAX_TRACKS`: `trackPriority = tier_weight × zone_weight − age × EVICTION_AGE_PENALTY`. Tier-1 danger tracks are never evicted in favour of tier-3 safe ones.
+
+### Attention Pipeline (`src/utils/attention.ts`)
+
+The tracker does **not** own announcement state anymore. `runAttention(tracks, now, state, config)` is called once per frame after the tracker step and returns:
+
+- `toAnnounce` — the set of `Announcement`s that passed priority + budget + cooldown gating. Consumed by `speak()` and haptics.
+- `deescalationTones` — track IDs that just exited the danger zone. Each fires a 440Hz/50ms tone (distinct from the 880Hz wake beep).
+- `renderTracks` — capped at `MAX_RENDERED_BOXES` (8), sorted by priority.
+- `suppressedCount` — for metrics only.
+
+Announcement gating rules:
+
+- **Priority** = `tier_weight × zone_weight × (1 + APPROACHING_BOOST if areaGrowthRate > threshold)`. Hazardous classes (car, bus, truck, motorcycle, bicycle) are tier 1; people tier 2; everything else tier 3.
+- **Budget** — at most `VERBOSITY_K` announcements per `BUDGET_WINDOW_MS` (2000ms): Quiet=1, Normal=3, Detailed=6.
+- **Reason gating** — `zone-escalation` (first-time entry to near/danger), `approaching` (growing bbox on a hazardous class), `sustained` (still in danger after `SUSTAINED_INTERVAL_MS`, capped by `SUSTAINED_MAX_COUNT`), or `first-time` (default single announcement).
+- **Tier-1 override** — a tier-1 track making a safe→danger step-jump bypasses the budget.
+- **Spatial clustering** — ≥ `CLUSTER_MIN_MEMBERS` same-class tracks within `CLUSTER_MATCH_FRAC` (15%) of frame diagonal are announced as one group ("3 people, ~4m") instead of individually.
+- **Cooldown GC** — entries older than `COOLDOWN_GC_MS` are dropped from the state map each frame to bound memory.
+
+### Speech delivery
+
+Because `useSpatialAudio.speak()` calls `speechSynthesis.cancel()`, `useDetectionLoop` joins all per-frame announcements into a single utterance (`"A. B. C"`). Without this, the budget window's K>1 would collapse to "last only".
+
+### Metrics
+
+`inferenceMetrics.recordAttention(announced, suppressed, clusters)` is called every frame. The periodic console log includes `announcements/min=… suppressed=… clusters=…` alongside the inference latency/FPS line.
 
 ---
 
