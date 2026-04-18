@@ -62,6 +62,7 @@ const App: React.FC = () => {
     isProcessingSlowLane: vlm.isProcessing,
     settings,
     speak,
+    playBeep,
   });
 
   // Camera error handler

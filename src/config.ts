@@ -3,14 +3,6 @@
 
 // ── Fast Lane (Detection Loop) ─────────────────────────────────────────
 export const INFERENCE_INTERVAL_MS = 100;   // ~10 fps target
-export const MAX_REANNOUNCE = 3;            // max re-announcements per track
-export const SUSTAINED_ZONE_MS = 3000;      // "still close" after 3s in danger zone
-
-// Classes that trigger approaching-hazard alerts
-export const HAZARDOUS_CLASSES = new Set([
-  'car', 'motorcycle', 'bus', 'train', 'truck', 'bicycle',
-  'fire hydrant', 'stop sign', 'bench',
-]);
 
 // ── Tracker ────────────────────────────────────────────────────────────
 export const TRACKER_MAX_AGE = 10;          // frames without match before track is dropped
@@ -24,11 +16,6 @@ export const PROXIMITY_NEAR_THRESHOLD = 0.25;    // screen area fraction
 // ── Haptic Thresholds (screen area fraction) ───────────────────────────
 export const HAPTIC_TRIPLE_PULSE_THRESHOLD = 0.6;
 export const HAPTIC_SINGLE_PULSE_THRESHOLD = 0.5;
-
-// ── Approaching Detection ──────────────────────────────────────────────
-export const APPROACHING_GROWTH_RATE = 0.05;     // area growth rate threshold
-export const FIRST_ANNOUNCE_MIN_SCORE = 0.6;     // min score for first TTS announcement
-export const FIRST_ANNOUNCE_AREA_THRESHOLD = 0.5; // min area fraction for non-hazardous announce
 
 // ── YOLO Model ─────────────────────────────────────────────────────────
 export const YOLO_INPUT_SIZE = 640;
