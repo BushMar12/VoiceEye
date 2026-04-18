@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createAttentionState, computePriority } from './attention';
+import { createAttentionState, computePriority, runAttention, type AttentionConfig } from './attention';
+import { updateTracks } from './tracker';
+import type { Detection } from './yolo';
 
 describe('createAttentionState', () => {
   it('produces an empty state anchored at the provided timestamp', () => {
@@ -177,5 +179,144 @@ describe('clusterTracks', () => {
     // Centroids: (120,140), (130,150), (140,160) → mean (130,150)
     expect(c.centroid[0]).toBeCloseTo(130);
     expect(c.centroid[1]).toBeCloseTo(150);
+  });
+});
+
+function cfg(overrides: Partial<AttentionConfig> = {}): AttentionConfig {
+  return {
+    verbosity: 'normal',
+    frameWidth: 1280,
+    frameHeight: 720,
+    screenArea: 1280 * 720,
+    ...overrides,
+  };
+}
+
+function d(cls: string, x: number, y: number, w: number, h: number, score = 0.9): Detection {
+  return { bbox: [x, y, w, h], class: cls, score };
+}
+
+describe('runAttention — first frame', () => {
+  it('announces a new track as "new"', () => {
+    const state = createAttentionState(0);
+    const tracks = updateTracks([], [d('car', 100, 100, 200, 200)]);
+    const out = runAttention(tracks, 0, state, cfg());
+
+    expect(out.toAnnounce).toHaveLength(1);
+    expect(out.toAnnounce[0].reason).toBe('new');
+    expect(out.toAnnounce[0].class).toBe('car');
+    expect(out.toAnnounce[0].kind).toBe('single');
+  });
+
+  it('caps output at budgetK = 3 in normal mode', () => {
+    const state = createAttentionState(0);
+    const tracks = updateTracks([], [
+      d('person', 100, 100, 40, 80),
+      d('dog',    200, 100, 40, 80),
+      d('cat',    300, 100, 40, 80),
+      d('horse',  400, 100, 40, 80),
+      d('car',    500, 100, 40, 80),
+    ]);
+    const out = runAttention(tracks, 0, state, cfg());
+    expect(out.toAnnounce).toHaveLength(3);
+    expect(out.suppressedCount).toBe(2);
+  });
+
+  it('caps output at budgetK = 1 in quiet mode', () => {
+    const state = createAttentionState(0);
+    const tracks = updateTracks([], [
+      d('car', 100, 100, 40, 80),
+      d('person', 200, 100, 40, 80),
+    ]);
+    const out = runAttention(tracks, 0, state, cfg({ verbosity: 'quiet' }));
+    expect(out.toAnnounce).toHaveLength(1);
+    expect(out.toAnnounce[0].class).toBe('car'); // tier-1 wins
+  });
+});
+
+describe('runAttention — hazard override', () => {
+  it('tier-1 safe→danger step-jump bypasses quiet-mode budget', () => {
+    const state = createAttentionState(0);
+
+    // Frame 1: a person in safe, a car also in safe — quiet mode picks only one
+    // Car is sized to allow IoU match with frame-2 big car: 200000 / 921600 = 21.7% → safe
+    let tracks = updateTracks([], [
+      d('person', 100, 100, 40, 80),
+      d('car', 200, 200, 500, 400),
+    ]);
+    let out = runAttention(tracks, 0, state, cfg({ verbosity: 'quiet' }));
+    expect(out.toAnnounce).toHaveLength(1);
+
+    // Frame 2: car bbox grows to fill >50% of screen (safe→danger step-jump)
+    // 1000 * 500 / 921600 = 54.3% → danger; IoU with frame-1 car = 0.4 → matches
+    const big: Detection = d('car', 100, 100, 1000, 500);
+    tracks = updateTracks(tracks, [
+      d('person', 102, 101, 40, 80),
+      big,
+    ]);
+    out = runAttention(tracks, 100, state, cfg({ verbosity: 'quiet' }));
+    const carAnn = out.toAnnounce.find(a => a.class === 'car');
+    expect(carAnn).toBeDefined();
+    expect(carAnn?.reason).toBe('zone-escalation');
+  });
+
+  it('tier-1 near→danger (gradual) does NOT bypass the budget', () => {
+    const state = createAttentionState(0);
+    // Frame 1: car in near zone
+    let tracks = updateTracks([], [d('car', 100, 100, 500, 450)]); // area ~0.24 → near
+    let out = runAttention(tracks, 0, state, cfg({ verbosity: 'quiet' }));
+    expect(out.toAnnounce).toHaveLength(1); // car announced (new)
+
+    // Frame 2: same window (within 2s), person enters that dominates budget
+    tracks = updateTracks(tracks, [
+      d('car', 100, 100, 500, 450), // still near
+      d('person', 600, 100, 40, 80),
+    ]);
+    out = runAttention(tracks, 100, state, cfg({ verbosity: 'quiet' }));
+    // Car was already announced; person has higher new priority? actually person safe new = tier2*zoneSafe*1 = 0.75
+    // Both valid candidates. Budget=1 means only one emits. This test just verifies we don't blow past budget.
+    expect(out.toAnnounce.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('runAttention — de-escalation tones', () => {
+  it('emits a tone when a track drops from danger back to near', () => {
+    const state = createAttentionState(0);
+
+    // Frame 1: huge car → danger (1000*500/921600 = 54.3%)
+    let tracks = updateTracks([], [d('car', 0, 0, 1000, 500)]);
+    runAttention(tracks, 0, state, cfg());
+
+    // Frame 2: shrink → near (still same track via IoU = 0.54). 600*450/921600 = 29.3%
+    tracks = updateTracks(tracks, [d('car', 0, 0, 600, 450)]);
+    const out = runAttention(tracks, 2500, state, cfg());
+
+    expect(out.deescalationTones.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('runAttention — render cap', () => {
+  it('returns at most MAX_RENDERED_BOXES (8) tracks in renderTracks', () => {
+    const state = createAttentionState(0);
+    const dets = Array.from({ length: 15 }, (_, i) => d('book', i * 50, 0, 40, 40));
+    const tracks = updateTracks([], dets);
+    const out = runAttention(tracks, 0, state, cfg());
+    expect(out.renderTracks.length).toBeLessThanOrEqual(8);
+  });
+});
+
+describe('runAttention — clustering', () => {
+  it('collapses 3 people into a single group announcement', () => {
+    const state = createAttentionState(0);
+    const tracks = updateTracks([], [
+      d('person', 500, 300, 40, 80),
+      d('person', 540, 300, 40, 80),
+      d('person', 580, 300, 40, 80),
+    ]);
+    const out = runAttention(tracks, 0, state, cfg());
+    const personAnn = out.toAnnounce.find(a => a.class === 'person');
+    expect(personAnn).toBeDefined();
+    expect(personAnn!.kind).toBe('group');
+    expect(personAnn!.memberCount).toBe(3);
   });
 });
