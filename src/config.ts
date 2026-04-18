@@ -3,14 +3,6 @@
 
 // ── Fast Lane (Detection Loop) ─────────────────────────────────────────
 export const INFERENCE_INTERVAL_MS = 100;   // ~10 fps target
-export const MAX_REANNOUNCE = 3;            // max re-announcements per track
-export const SUSTAINED_ZONE_MS = 3000;      // "still close" after 3s in danger zone
-
-// Classes that trigger approaching-hazard alerts
-export const HAZARDOUS_CLASSES = new Set([
-  'car', 'motorcycle', 'bus', 'train', 'truck', 'bicycle',
-  'fire hydrant', 'stop sign', 'bench',
-]);
 
 // ── Tracker ────────────────────────────────────────────────────────────
 export const TRACKER_MAX_AGE = 10;          // frames without match before track is dropped
@@ -24,11 +16,6 @@ export const PROXIMITY_NEAR_THRESHOLD = 0.25;    // screen area fraction
 // ── Haptic Thresholds (screen area fraction) ───────────────────────────
 export const HAPTIC_TRIPLE_PULSE_THRESHOLD = 0.6;
 export const HAPTIC_SINGLE_PULSE_THRESHOLD = 0.5;
-
-// ── Approaching Detection ──────────────────────────────────────────────
-export const APPROACHING_GROWTH_RATE = 0.05;     // area growth rate threshold
-export const FIRST_ANNOUNCE_MIN_SCORE = 0.6;     // min score for first TTS announcement
-export const FIRST_ANNOUNCE_AREA_THRESHOLD = 0.5; // min area fraction for non-hazardous announce
 
 // ── YOLO Model ─────────────────────────────────────────────────────────
 export const YOLO_INPUT_SIZE = 640;
@@ -67,3 +54,41 @@ export const METRICS_LOG_INTERVAL = 300;    // log every N frames
 // ── UI Messages ────────────────────────────────────────────────────────
 export const FULL_INTRO_MESSAGE = "Camera ready. Tap the screen or say 'Voice Eye, describe' to read the scene.";
 export const SHORT_INTRO_MESSAGE = 'Ready';
+
+// ── Attention Pipeline ─────────────────────────────────────────────────
+import type { ProximityZone } from './utils/tracker';
+
+export const HAZARD_TIER: Record<string, 1 | 2 | 3> = {
+  car: 1, truck: 1, bus: 1, motorcycle: 1, bicycle: 1, train: 1,
+  person: 2, dog: 2, cat: 2, horse: 2,
+};
+export const DEFAULT_TIER: 1 | 2 | 3 = 3;
+
+export const TIER_WEIGHT: Record<1 | 2 | 3, number> = { 1: 3.0, 2: 1.5, 3: 0.3 };
+export const ZONE_WEIGHT: Record<ProximityZone, number> = { danger: 3.0, near: 1.5, safe: 0.5 };
+export const EVICTION_AGE_PENALTY = 0.01;
+export const APPROACHING_GROWTH_THRESHOLD_ATTN = 0.05;
+export const APPROACHING_BOOST = 1.0;
+
+export const CLUSTER_MIN_MEMBERS = 3;
+export const CLUSTER_RADIUS_FRAC = 0.15;
+export const CLUSTER_MATCH_FRAC = 0.10;
+export const CLUSTER_COUNT_DELTA = 2;
+
+export const BUDGET_WINDOW_MS = 2000;
+export const COOLDOWN_APPROACHING_MS = 2000;
+export const COOLDOWN_SUSTAINED_MS = 3000;
+export const SUSTAINED_ENTRY_DELAY_MS = 3000;
+export const SUSTAINED_MAX_COUNT = 3;
+export const COOLDOWN_GC_MS = 30_000;
+
+export const DEESCALATION_TONE_HZ = 440;
+export const DEESCALATION_TONE_S = 0.05;
+
+export const MAX_DETECTIONS_PER_FRAME = 40;
+export const MAX_TRACKS = 30;
+export const MAX_RENDERED_BOXES = 8;
+
+export const VERBOSITY_K: Record<'quiet' | 'normal' | 'detailed', number> = {
+  quiet: 1, normal: 3, detailed: 6,
+};

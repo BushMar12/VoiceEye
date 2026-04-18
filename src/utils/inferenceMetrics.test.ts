@@ -128,3 +128,28 @@ describe('InferenceMetrics', () => {
     expect(summary.avgLatencyMs).toBe(0);
   });
 });
+
+describe('InferenceMetrics — announcement counters', () => {
+  it('records announcements and suppressions', () => {
+    mockNow = 0;
+    inferenceMetrics.recordInference(10, []);
+    inferenceMetrics.recordAttention(2, 5, 1); // 2 announced, 5 suppressed, 1 cluster
+
+    const summary = inferenceMetrics.getSummary();
+    expect(summary.announcementsTotal).toBe(2);
+    expect(summary.suppressedTotal).toBe(5);
+    expect(summary.activeClusters).toBe(1);
+  });
+
+  it('computes announcements per minute over elapsed time', () => {
+    mockNow = 0;
+    inferenceMetrics.recordInference(10, []);
+    inferenceMetrics.recordAttention(3, 0, 0);
+    mockNow = 60_000; // 1 minute later
+    inferenceMetrics.recordInference(10, []);
+    inferenceMetrics.recordAttention(3, 0, 0);
+
+    const summary = inferenceMetrics.getSummary();
+    expect(summary.announcementsPerMin).toBeCloseTo(6, 0);
+  });
+});

@@ -1,16 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 
+export type Verbosity = 'quiet' | 'normal' | 'detailed';
+
 export interface AppSettings {
   ttsRate: number;
   confThreshold: number;
   hapticEnabled: boolean;
+  verbosity: Verbosity;
 }
 
 const DEFAULTS: AppSettings = {
   ttsRate: 1.0,
   confThreshold: 0.5,
   hapticEnabled: true,
+  verbosity: 'normal',
 };
 
 const STORAGE_KEY = 'voiceeye_settings';
@@ -106,6 +110,25 @@ const SettingsPanel: React.FC<Props> = ({ settings, onChange, onClose }) => {
             <span className="settings-toggle-thumb" />
           </button>
         </label>
+
+        {/* Verbosity */}
+        <div className="settings-row" role="radiogroup" aria-label="Verbosity level">
+          <span className="settings-label">Verbosity</span>
+          <div className="settings-control" style={{ display: 'flex', gap: 4 }}>
+            {([['quiet', 'Quiet'], ['normal', 'Normal'], ['detailed', 'Detailed']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                role="radio"
+                className={`glass-button${local.verbosity === value ? ' active' : ''}`}
+                onClick={() => update({ verbosity: value })}
+                aria-checked={local.verbosity === value}
+                style={{ flex: 1, height: 36, fontSize: 13 }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

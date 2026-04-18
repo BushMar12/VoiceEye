@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { updateTracks, classifyProximity } from './tracker';
+import { MAX_TRACKS } from '../config';
 import type { Detection } from './yolo';
 
 // Helper to create a detection
@@ -33,9 +34,35 @@ describe('updateTracks', () => {
     expect(tracks).toHaveLength(1);
     expect(tracks[0].class).toBe('person');
     expect(tracks[0].age).toBe(0);
-    expect(tracks[0].announced).toBe(false);
     expect(tracks[0].proximityZone).toBe('safe');
-    expect(tracks[0].reannounceCount).toBe(0);
+  });
+
+  it('classifies proximityZone from screenArea per frame', () => {
+    const screenArea = 800 * 600; // 480000
+    // 600*600 = 360000 → 75% → 'danger'
+    const danger = updateTracks([], [det('car', 0, 0, 600, 600)], screenArea);
+    expect(danger[0].proximityZone).toBe('danger');
+
+    // 400*350 = 140000 → 29% → 'near'
+    const near = updateTracks([], [det('car', 0, 0, 400, 350)], screenArea);
+    expect(near[0].proximityZone).toBe('near');
+
+    // 100*100 = 10000 → 2% → 'safe'
+    const safe = updateTracks([], [det('car', 0, 0, 100, 100)], screenArea);
+    expect(safe[0].proximityZone).toBe('safe');
+  });
+
+  it('updates proximityZone on a matched track when bbox grows', () => {
+    const screenArea = 800 * 600;
+    // Spawn a small safe car
+    const t1 = updateTracks([], [det('car', 100, 100, 100, 100)], screenArea);
+    expect(t1[0].proximityZone).toBe('safe');
+
+    // Grow it slightly (IoU above 0.3 keeps it the same track), still safe
+    // (200*200)/(800*600) ≈ 8% → safe
+    const t2 = updateTracks(t1, [det('car', 100, 100, 200, 200)], screenArea);
+    expect(t2[0].id).toBe(t1[0].id);
+    expect(t2[0].proximityZone).toBe('safe');
   });
 
   it('assigns unique IDs to new tracks', () => {
@@ -83,14 +110,6 @@ describe('updateTracks', () => {
     // Frame 11: track should be dropped (age > MAX_AGE=10)
     tracks = updateTracks(tracks, []);
     expect(tracks).toHaveLength(0);
-  });
-
-  it('preserves announced flag across matched frames', () => {
-    let tracks = updateTracks([], [det('person', 100, 100, 50, 100)]);
-    tracks[0].announced = true;
-
-    tracks = updateTracks(tracks, [det('person', 102, 101, 50, 100)]);
-    expect(tracks[0].announced).toBe(true);
   });
 
   it('computes centroid and area for new tracks', () => {
@@ -145,5 +164,38 @@ describe('updateTracks', () => {
     const t2 = updateTracks(t1, [det('person', 100, 100, 50, 100)]);
     // lastArea was 0, so growth rate should be 0 (guarded)
     expect(t2[0].areaGrowthRate).toBe(0);
+  });
+});
+
+describe('updateTracks — eviction at MAX_TRACKS', () => {
+  it('evicts the lowest-priority track when total would exceed MAX_TRACKS', () => {
+    // Seed MAX_TRACKS existing tier-3 safe tracks
+    let tracks = updateTracks([], Array.from({ length: MAX_TRACKS }, (_, i) =>
+      det('book', i * 20, 0, 5, 5)));
+    expect(tracks).toHaveLength(MAX_TRACKS);
+
+    // New frame: all existing tracks continue AND one new tier-1 danger track enters
+    const continuing = tracks.map(t => det(t.class, t.bbox[0], t.bbox[1], t.bbox[2], t.bbox[3]));
+    const newHazard = det('car', 900, 300, 600, 600); // huge → danger zone
+    tracks = updateTracks(tracks, [...continuing, newHazard]);
+
+    // Still MAX_TRACKS — the car must be there; a book must have been evicted
+    expect(tracks).toHaveLength(MAX_TRACKS);
+    expect(tracks.some(t => t.class === 'car')).toBe(true);
+    expect(tracks.filter(t => t.class === 'book').length).toBe(MAX_TRACKS - 1);
+  });
+
+  it('never evicts a tier-1 danger track in favour of a tier-3 safe one', () => {
+    // One tier-1 danger track (a car) is seeded first
+    let tracks = updateTracks([], [det('car', 100, 100, 600, 600)]);
+    expect(tracks).toHaveLength(1);
+
+    // Fill the rest with tier-3 safe books
+    const fillers = Array.from({ length: MAX_TRACKS }, (_, i) => det('book', 900 + i, 0, 5, 5));
+    tracks = updateTracks(tracks, [det('car', 100, 100, 600, 600), ...fillers]);
+
+    // The car must still be present; we got to MAX_TRACKS (not MAX_TRACKS + 1)
+    expect(tracks).toHaveLength(MAX_TRACKS);
+    expect(tracks.some(t => t.class === 'car')).toBe(true);
   });
 });

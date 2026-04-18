@@ -1,46 +1,50 @@
 # VoiceEye: AI Vision Assistant
 
-VoiceEye is an advanced assistive technology application designed to provide real-time spatial awareness and deep contextual understanding for visually impaired users. It utilises a **Dual-Lane Processing Architecture** to balance immediate feedback with complex scene analysis. All AI processing runs locally on-device — no data leaves your environment.
+VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives visually impaired users real-time spatial awareness through their phone camera. It uses a **Dual-Lane Processing Architecture** — combining instant object detection with deep scene understanding. All AI processing runs locally on-device — no data leaves your environment.
 
 ---
 
 ## Core Architecture: The Two-Lane Approach
 
-VoiceEye operates using two distinct computational lanes:
-
-### The Fast Lane (Real-Time Object Detection + Tracking)
+### Fast Lane (Real-Time Object Detection + Tracking)
 - **Engine**: YOLO26n via ONNX Runtime Web (WebAssembly, runs entirely in-browser)
-- **Function**: Continuous object detection and multi-object tracking, throttled to ~10fps for battery efficiency.
-- **Tracking**: Each detected object is assigned a persistent **Track ID** across frames using IoU-based matching. Once an object is announced, it is not repeated until it leaves and re-enters the frame.
-- **Velocity & Proximity**: EMA-smoothed velocity estimation detects approaching objects. Proximity zones (safe/near/danger) trigger escalating alerts.
-- **Bounding boxes**: Labelled as `{class} #{trackId} {distance}` — e.g. `person #3 ~1.2m`. Color-coded green (safe), amber (near), or red (danger).
-- **Distance**: Estimated using a pinhole camera model with known average object heights.
-- **Feedback**: Instant audio announcements and haptic vibration for close or hazardous objects.
+- **Function**: Continuous object detection and multi-object tracking, throttled to ~10fps for battery efficiency
+- **Tracking**: Each detected object gets a persistent **Track ID** via IoU-based matching
+- **Attention Pipeline**: Filters which tracks become speech. Top-K budget per 2s window (Quiet=1, Normal=3, Detailed=6), reason-gated cooldowns, same-class spatial clustering, and a tier-1 hazard override that bypasses the budget for safe→danger step-jumps
+- **Velocity & Proximity**: EMA-smoothed velocity estimation detects approaching objects. Proximity zones (safe/near/danger) drive priority and gating
+- **Bounding Boxes**: Labelled as `{class} #{trackId} {distance}` (e.g. `person #3 ~1.2m`), color-coded green/amber/red per current proximity zone
+- **Distance**: Estimated using a pinhole camera model with known average object heights
+- **Feedback**: Batched TTS per frame plus haptic vibration patterns; 440Hz de-escalation tone when an object exits the danger zone
 
-### The Slow Lane (Deep Context VLM)
+### Slow Lane (Deep Context VLM)
 - **Engine**: Qwen2.5-VL via local Ollama API
-- **Function**: High-fidelity scene description, text extraction (OCR), and targeted object search.
-- **Trigger**: Tap the screen or use a voice command.
+- **Function**: Scene description, text extraction (OCR), and targeted object search
+- **Trigger**: Tap the screen or use a voice command
+- **Timeout**: 15-second AbortController timeout with spoken error feedback
 
 ---
 
 ## Key Features
 
-- **Hands-Free Voice Commands**: Continuous background listening for the "Voice Eye" wake word. Instant audio beep confirmation on detection.
-- **Per-Object Announcement**: Each tracked object is announced exactly once per appearance — no repetitive alerts.
-- **Approaching-Object Alerts**: Warns when hazardous objects (cars, buses, trucks, etc.) are moving toward the user, with estimated distance.
-- **Zone-Based Re-announcement**: Objects entering the danger zone trigger re-alerts. Sustained proximity (>3s) triggers "Still close" reminders, capped at 3 per track.
-- **Distance Estimation**: Monocular distance shown on every bounding box (e.g. `~1.2m`, `>5m`).
-- **Haptic Proximity Engine**: Device vibration alerts for nearby objects.
-  - *Single pulse*: Object occupies >50% of screen area.
-  - *Triple pulse*: Collision warning — object occupies >60% of screen area.
-  - *Rapid burst*: Hazardous object approaching.
-- **Configurable Settings**: Adjustable TTS speed, detection sensitivity, and haptic toggle — persisted across sessions.
-- **Camera Error Recovery**: Automatic retry on transient camera errors with user-facing spoken error messages.
-- **Native PWA**: Installable on Android and iOS with full-screen standalone mode.
-- **MLOps Pipeline**: ClearML-tracked training with automated pipeline, HPO (Optuna), and remote agent execution.
-- **Inference Monitoring**: In-browser latency/FPS/confidence tracking with console logging.
-- **Local-First Privacy**: All detection (ONNX Runtime Web) and VLM (Ollama) runs on your hardware.
+- **Hands-Free Voice Commands** — Continuous background listening for the "Voice Eye" wake word with instant 880Hz beep confirmation
+- **Cognitive-Load Budgeting** — Verbosity setting (Quiet/Normal/Detailed) caps announcements per 2s window so the user is never drowned in speech in crowded scenes
+- **Tier-1 Hazard Override** — Cars, buses, motorcycles etc. bypass the budget when they step from safe directly into the danger zone
+- **Approaching-Object Alerts** — Warns when hazardous objects are moving toward the user, with estimated distance
+- **Spatial Clustering** — Same-class objects within 15% of frame diagonal are announced as a group ("3 people, ~4m") instead of individually
+- **De-escalation Cue** — A 440Hz tone fires when an object exits the danger zone, distinct from the wake-word beep
+- **Distance Estimation** — Monocular distance on every bounding box (e.g. `~1.2m`, `>5m`)
+- **Haptic Proximity Engine** — Device vibration patterns:
+  - *Single pulse*: Object occupies >50% of screen
+  - *Triple pulse*: Collision warning (>60%)
+  - *Rapid burst*: Hazardous object approaching
+- **Configurable Settings** — TTS speed, detection sensitivity, haptic toggle — persisted to localStorage
+- **Camera Error Recovery** — Automatic retry (up to 3 attempts) with spoken error messages
+- **Error Boundary** — Crash recovery with TTS feedback ("VoiceEye encountered an error") and tap-to-reload
+- **VLM Error Handling** — Spoken feedback for timeout, Ollama unavailability, and generic errors
+- **Native PWA** — Installable on Android and iOS with full-screen standalone mode
+- **MLOps Pipeline** — ClearML-tracked training with automated pipeline, HPO (Optuna), and remote agent execution
+- **Inference Monitoring** — In-browser latency/FPS/confidence tracking with periodic console logging
+- **Local-First Privacy** — All detection (ONNX Runtime Web) and VLM (Ollama) runs on your hardware
 
 ---
 
@@ -48,13 +52,14 @@ VoiceEye operates using two distinct computational lanes:
 
 | Component | Technology |
 | :--- | :--- |
-| **Frontend** | React 19, TypeScript 6, Vite 8 |
-| **Object Detection** | YOLO26n via ONNX Runtime Web |
-| **Object Tracking** | IoU-based multi-object tracker with velocity estimation (`src/utils/tracker.ts`) |
-| **Distance Estimation** | Pinhole camera model (`src/utils/distance.ts`) |
+| **Frontend** | React 19, TypeScript 5.6, Vite 6 |
+| **Object Detection** | YOLO26n via ONNX Runtime Web (WASM) |
+| **Object Tracking** | IoU-based multi-object tracker with velocity estimation |
+| **Distance Estimation** | Pinhole camera model with known object heights |
 | **Vision-Language Model** | Qwen2.5-VL (local via Ollama) |
 | **Styling** | Vanilla CSS — glassmorphism design system |
 | **PWA** | vite-plugin-pwa |
+| **Testing** | Vitest + Testing Library |
 | **MLOps** | ClearML + Ultralytics YOLO + Optuna HPO |
 | **CI/CD** | GitHub Actions |
 
@@ -62,53 +67,66 @@ VoiceEye operates using two distinct computational lanes:
 
 ## Getting Started
 
-### 1. Prerequisites
+### Prerequisites
 - [Node.js](https://nodejs.org/) v18+
-- [Ollama](https://ollama.com/) running locally
+- [Ollama](https://ollama.com/) running locally (for Slow Lane)
 - A YOLO26n model exported to ONNX format
 - [ClearML](https://clear.ml/) (optional — for custom model training)
 
-### 2. Prepare the Ollama VLM
+### Quick Start
+
+**Windows** — double-click `start.bat`
+
+**macOS / Linux** — run `./start.sh`
+
+Both scripts auto-install dependencies and open the browser.
+
+### Manual Setup
+
+#### 1. Prepare the Ollama VLM
 ```bash
-ollama run qwen2.5vl
+ollama serve                # Start the API server
+ollama run qwen2.5vl        # Pull + verify the model
 ```
 
-### 3. Prepare the YOLO Model
+#### 2. Prepare the YOLO Model
 Export YOLO26n to ONNX and place it at `public/models/yolo26n.onnx`:
 ```bash
 pip install ultralytics
 yolo export model=yolo26n.pt format=onnx imgsz=640
-# then copy yolo26n.onnx → public/models/yolo26n.onnx
+# Copy yolo26n.onnx → public/models/yolo26n.onnx
 ```
 
-### 4. Install Dependencies
+#### 3. Install Dependencies
 ```bash
 npm install
 ```
 > The `postinstall` script automatically copies ONNX Runtime WASM files to `public/ort-wasm/`.
 
-### 5. Run the Dev Server
-
-On desktop:
+#### 4. Run the Dev Server
 ```bash
-npm run dev
+npm run dev                    # Desktop: https://localhost:5173
+npm run dev -- --host          # Mobile: exposes on local network IP
 ```
+> On your phone, open the `https://` URL and accept the self-signed certificate warning. Camera and microphone require HTTPS.
 
-On a **physical mobile device** (required for camera, haptics, and PWA):
+#### 5. Run Tests
 ```bash
-npm run dev -- --host
+npm test                       # Run all tests once (70+)
+npm run test:watch             # Watch mode
 ```
-> Open the `https://` version of your local IP on your phone. Accept the self-signed certificate warning to grant camera and microphone permissions.
 
 ---
 
-## Command Guide
+## Voice Commands
 
-| Voice Command | Action |
+| Command | Action |
 | :--- | :--- |
-| **"Voice Eye, describe"** | Generates a general scene description via Qwen VLM. |
-| **"Voice Eye, read text"** | Switches to OCR mode to read visible documents or labels. |
-| **"Voice Eye, find [object]"** | Searches the scene for a specific target (e.g. "find my keys"). |
+| **"Voice Eye, describe"** | Generates a scene description via Qwen VLM |
+| **"Voice Eye, read"** | OCR mode — reads visible text, documents, or labels |
+| **"Voice Eye, find [object]"** | Searches the scene for a specific object (e.g. "find my keys") |
+
+All commands trigger an instant beep + "Got it" confirmation before processing.
 
 ---
 
@@ -120,7 +138,64 @@ Accessible via the gear icon in the top-right corner. Persisted to localStorage.
 | :--- | :--- | :--- |
 | **Voice Speed** | 0.5x – 2.0x | 1.0x |
 | **Detection Sensitivity** | 30% – 80% | 50% |
+| **Verbosity** | Quiet / Normal / Detailed | Normal |
 | **Haptic Feedback** | On / Off | On |
+
+---
+
+## Project Structure
+
+```
+VoiceEye/
+├── src/
+│   ├── App.tsx                      # Slim orchestrator (~165 lines)
+│   ├── main.tsx                     # Entry point with ErrorBoundary
+│   ├── config.ts                    # All tunable constants (single source of truth)
+│   ├── index.css                    # Glassmorphism design system
+│   ├── hooks/
+│   │   ├── useDetectionLoop.ts      # Fast Lane: YOLO inference + tracking + alerts
+│   │   ├── useVLMEngine.ts          # Slow Lane: Ollama VLM with timeout/dedup
+│   │   ├── useVoiceRecognition.ts   # Wake word + command parsing
+│   │   └── useSpatialAudio.ts       # TTS, beep, haptic primitives
+│   ├── components/
+│   │   ├── CameraView.tsx           # Camera access + error recovery + retry
+│   │   ├── SettingsPanel.tsx         # Settings UI + localStorage persistence
+│   │   └── ErrorBoundary.tsx        # Crash recovery with TTS feedback
+│   ├── utils/
+│   │   ├── yolo.ts                  # ONNX session + YOLO pre/post-processing + NMS
+│   │   ├── tracker.ts              # IoU tracker + velocity + proximity zones
+│   │   ├── attention.ts            # Priority + budget + cluster + cooldown filter
+│   │   ├── distance.ts             # Monocular distance estimation
+│   │   ├── inferenceMetrics.ts     # Latency/FPS/confidence + announcement counters
+│   │   ├── tracker.test.ts         # 17 tests
+│   │   ├── attention.test.ts       # 30 tests
+│   │   ├── distance.test.ts        # 12 tests
+│   │   └── inferenceMetrics.test.ts # 11 tests
+│   └── test/
+│       └── setup.ts                 # Vitest setup
+├── public/
+│   ├── models/                      # YOLO ONNX model (not in git — add manually)
+│   ├── icons/                       # PWA icons
+│   └── ort-wasm/                    # ONNX Runtime WASM (auto-copied by postinstall)
+├── training/
+│   ├── config.yaml                  # Training hyperparameters (single source of truth)
+│   ├── train.py                     # ClearML-tracked training script
+│   ├── pipeline.py                  # 4-step ClearML pipeline (local or remote)
+│   ├── hpo.py                       # Hyperparameter optimization (Optuna + ClearML)
+│   ├── validate_config.py           # Config validation for CI
+│   ├── requirements.txt             # Python dependencies
+│   ├── agent_setup.md               # ClearML Agent setup guide
+│   └── model_card.md                # Model card template
+├── .github/workflows/
+│   ├── frontend-ci.yml              # Lint + build on PR
+│   ├── training-config-validate.yml # Config validation on PR
+│   └── model-download.yml           # Download model from ClearML
+├── mlops_clearml_yolo.ipynb         # Interactive training notebook
+├── start.bat                        # One-click start (Windows)
+├── start.sh                         # One-click start (macOS/Linux)
+├── IMPLEMENTATION_PLAN.md           # Roadmap: Phases 1-5
+└── vite.config.ts                   # Ollama proxy + PWA config
+```
 
 ---
 
@@ -150,13 +225,14 @@ python training/pipeline.py --remote
 ### Hyperparameter Optimization
 
 ```bash
-# Create template task
+# 1. Create template task (short run)
 python training/train.py --epochs 5
 
-# Run HPO with Optuna (requires clearml-agent)
+# 2. Run HPO with Optuna (requires clearml-agent)
 python training/hpo.py --template-task-id <TASK_ID> --max-trials 20
 
-# Best params saved to config.yaml — run full training
+# 3. Best params auto-saved to config.yaml
+# 4. Full training with optimized config
 python training/pipeline.py --remote
 ```
 
@@ -181,44 +257,20 @@ See [training/agent_setup.md](training/agent_setup.md) for ClearML Agent configu
 
 ---
 
-## Project Structure
+## Dev Commands
 
-```text
-VoiceEye/
-├── public/
-│   ├── models/
-│   │   └── yolo26n.onnx          # YOLO model (not in git — add manually)
-│   ├── icons/                    # PWA icons (192x192, 512x512, apple-touch-icon)
-│   └── ort-wasm/                 # ONNX Runtime WASM (auto-copied by postinstall)
-├── src/
-│   ├── components/
-│   │   ├── CameraView.tsx        # Camera hardware access, error recovery & retry
-│   │   └── SettingsPanel.tsx     # Settings UI (TTS speed, sensitivity, haptics)
-│   ├── utils/
-│   │   ├── yolo.ts               # ONNX session loader + YOLO pre/post-processing
-│   │   ├── tracker.ts            # IoU tracker with velocity & proximity zones
-│   │   ├── distance.ts           # Monocular distance estimation
-│   │   └── inferenceMetrics.ts   # In-browser latency/FPS/confidence tracking
-│   ├── App.tsx                   # Core logic: detection loop, TTS, haptics, VLM, settings
-│   └── index.css                 # Glassmorphism design system
-├── training/
-│   ├── config.yaml               # All training hyperparameters (single source of truth)
-│   ├── train.py                  # ClearML-tracked training script
-│   ├── pipeline.py               # 4-step ClearML pipeline (local or remote)
-│   ├── hpo.py                    # Hyperparameter optimization (Optuna + ClearML)
-│   ├── validate_config.py        # Config validation for CI
-│   ├── requirements.txt          # Python dependencies
-│   ├── agent_setup.md            # ClearML Agent setup guide
-│   └── model_card.md             # Model card template
-├── .github/workflows/
-│   ├── frontend-ci.yml           # Lint + build on PR
-│   ├── training-config-validate.yml  # Config validation on PR
-│   └── model-download.yml        # Download model from ClearML
-├── mlops_clearml_yolo.ipynb      # Interactive training notebook
-└── vite.config.ts                # Ollama proxy + PWA config
+```bash
+npm run dev              # Start dev server (https://localhost:5173)
+npm run dev -- --host    # Expose on local network for phone testing
+npm run build            # TypeScript check + production bundle
+npm run lint             # ESLint
+npm run preview          # Preview production build
+npm test                 # Run all tests (Vitest)
+npm run test:watch       # Watch mode
 ```
 
 ---
 
 ## License
-MIT License — Copyright (c) 2026 VoiceEye Project
+
+MIT License — Copyright (c) 2025 VoiceEye Project

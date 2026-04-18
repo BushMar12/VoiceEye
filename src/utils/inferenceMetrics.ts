@@ -8,6 +8,10 @@ export interface MetricsSummary {
   fps: number;
   avgDetectionsPerFrame: number;
   confidenceDistribution: Record<string, number>;
+  announcementsTotal: number;
+  suppressedTotal: number;
+  announcementsPerMin: number;
+  activeClusters: number;
 }
 
 class InferenceMetrics {
@@ -18,6 +22,9 @@ class InferenceMetrics {
   private firstTimestamp = 0;
   private lastTimestamp = 0;
   private framesSinceLog = 0;
+  private announcementsTotal = 0;
+  private suppressedTotal = 0;
+  private lastActiveClusters = 0;
 
   recordInference(latencyMs: number, detections: Detection[]): void {
     const now = performance.now();
@@ -50,6 +57,12 @@ class InferenceMetrics {
     }
   }
 
+  recordAttention(announced: number, suppressed: number, clusters: number): void {
+    this.announcementsTotal += announced;
+    this.suppressedTotal    += suppressed;
+    this.lastActiveClusters = clusters;
+  }
+
   getSummary(): MetricsSummary {
     const sorted = [...this.latencies].sort((a, b) => a - b);
     const avg = sorted.length > 0
@@ -72,6 +85,10 @@ class InferenceMetrics {
       fps: Math.round(fps * 10) / 10,
       avgDetectionsPerFrame: Math.round(avgDet * 10) / 10,
       confidenceDistribution: { ...this.confidenceBuckets },
+      announcementsTotal: this.announcementsTotal,
+      suppressedTotal:    this.suppressedTotal,
+      announcementsPerMin: elapsed > 0 ? (this.announcementsTotal / elapsed) * 60 : 0,
+      activeClusters:     this.lastActiveClusters,
     };
   }
 
@@ -83,13 +100,18 @@ class InferenceMetrics {
     this.firstTimestamp = 0;
     this.lastTimestamp = 0;
     this.framesSinceLog = 0;
+    this.announcementsTotal = 0;
+    this.suppressedTotal = 0;
+    this.lastActiveClusters = 0;
   }
 
   private logSummary(): void {
     const s = this.getSummary();
     console.log(
       `[VoiceEye] fps=${s.fps} avgLatency=${s.avgLatencyMs}ms ` +
-      `p95=${s.p95LatencyMs}ms detections/frame=${s.avgDetectionsPerFrame}`
+      `p95=${s.p95LatencyMs}ms detections/frame=${s.avgDetectionsPerFrame} ` +
+      `announcements/min=${Math.round(s.announcementsPerMin * 10) / 10} ` +
+      `suppressed=${s.suppressedTotal} clusters=${s.activeClusters}`
     );
   }
 }
