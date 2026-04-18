@@ -54,7 +54,7 @@ def _load_vistas_json(path: Path) -> tuple[list[dict], int, int]:
       { "width": W, "height": H, "objects": [
           {"label": "...", "polygon": [[x,y], ...]}, ... ] }
     """
-    data = json.loads(Path(path).read_text())
+    data = json.loads(path.read_text())
     anns = [{'label': o['label'], 'polygon': [tuple(p) for p in o['polygon']]}
             for o in data['objects']]
     return anns, data['width'], data['height']
@@ -74,7 +74,7 @@ def download_and_convert_mapillary(raw_dir: Path, processed_labels_dir: Path,
         raw_dir/validation/v2.0/polygons/*.json
     """
     if not os.environ.get('MAPILLARY_TOKEN'):
-        print(f"[mapillary] MAPILLARY_TOKEN not set. Skipping.")
+        print("[mapillary] MAPILLARY_TOKEN not set. Skipping.")
         print(f"[mapillary] Sign up for Research Edition: {MAPILLARY_SIGNUP_URL}")
         print(f"[mapillary] Then unpack under {raw_dir} and set MAPILLARY_TOKEN=1.")
         return False

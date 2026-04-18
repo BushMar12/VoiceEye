@@ -24,6 +24,7 @@ def test_polygon_annotation_mapped_class():
         'polygon': [(100, 200), (300, 200), (300, 280), (100, 280)],
     }
     line = polygon_annotation_to_yolo(ann, img_w=1000, img_h=800)
+    assert line is not None
     parts = line.split()
     # 'crosswalk' is class 44 in CLASSES
     assert parts[0] == '44'
