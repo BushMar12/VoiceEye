@@ -76,11 +76,12 @@ export function useDetectionLoop({
             const t0 = performance.now();
             const detections = await runYolo(model, videoElement, settingsRef.current.confThreshold);
             inferenceMetrics.recordInference(performance.now() - t0, detections);
-            tracksRef.current = updateTracks(tracksRef.current, detections);
 
             const vw = videoElement.videoWidth;
             const vh = videoElement.videoHeight;
             const screenArea = vw * vh;
+
+            tracksRef.current = updateTracks(tracksRef.current, detections, screenArea);
 
             const out = runAttention(tracksRef.current, now, attentionStateRef.current, {
               verbosity: settingsRef.current.verbosity,
@@ -97,9 +98,14 @@ export function useDetectionLoop({
 
             setRenderedTracks(out.renderTracks);
 
-            // Speak announcements
-            for (const ann of out.toAnnounce) {
-              speak(formatAnnouncement(ann, vh), undefined, settingsRef.current.ttsRate);
+            // Speak announcements — batched into one utterance per frame because
+            // useSpatialAudio.speak() cancels any in-flight speech, which would
+            // otherwise collapse the budget (K=3 in Normal) down to "last only".
+            if (out.toAnnounce.length > 0) {
+              const phrase = out.toAnnounce
+                .map(ann => formatAnnouncement(ann, vh))
+                .join('. ');
+              speak(phrase, undefined, settingsRef.current.ttsRate);
             }
 
             // De-escalation tones
