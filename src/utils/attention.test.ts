@@ -124,10 +124,13 @@ describe('detectReason', () => {
 import { clusterTracks } from './attention';
 
 function trackAt(id: number, cls: string, x: number, y: number, w = 40, h = 80) {
-  return mockTrack({ ...mockTrack(), id, class: cls,
+  return {
+    ...mockTrack(),
+    id,
+    class: cls,
     bbox: [x, y, w, h] as [number, number, number, number],
     lastCentroid: [x + w / 2, y + h / 2] as [number, number],
-  });
+  };
 }
 
 describe('clusterTracks', () => {
@@ -355,12 +358,10 @@ describe('runAttention — synthetic stress scenes', () => {
     expect(firstWindow.some(a => a.class === 'car')).toBe(true);
   });
 
-  it('empty room: 2 tier-3 chairs in Normal mode — zero announcements', () => {
-    // Two chairs are below CLUSTER_MIN_MEMBERS=3, individual tier-3 low priority
+  it('empty room: 2 tier-3 chairs in Quiet mode — zero-or-one announcement', () => {
+    // Two chairs are below CLUSTER_MIN_MEMBERS=3, individual tier-3 low priority.
+    // Documents the baseline: quiet mode is the "zero" case for background clutter.
     const dets = [d('chair', 100, 100, 40, 40), d('chair', 200, 100, 40, 40)];
-    const anns = runScene([dets, dets], 'normal');
-    // Tier-3 has priority 0.15; may still be announced if budget permits. In 'normal' K=3, both are top candidates → they emit.
-    // This test documents the baseline: quiet mode is the "zero" case.
     const quiet = runScene([dets, dets], 'quiet');
     expect(quiet.length).toBeLessThanOrEqual(1);
   });
