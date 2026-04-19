@@ -1,0 +1,6 @@
+Open Images Dataset V7 annotations are licensed by Google LLC under
+CC BY 4.0 license. The images are listed as having a CC BY 2.0 license.
+See https://storage.googleapis.com/openimages/web/factsfigures_v7.html
+
+Citation:
+Kuznetsova et al., "The Open Images Dataset V4", IJCV 2020.

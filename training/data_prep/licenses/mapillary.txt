@@ -1,0 +1,9 @@
+Mapillary Vistas Dataset — Research Edition.
+Licensed for non-commercial research use only.
+See https://www.mapillary.com/dataset/vistas for terms.
+
+Citation:
+Neuhold et al., "The Mapillary Vistas Dataset for Semantic Understanding
+of Street Scenes", ICCV 2017.
+
+DO NOT redistribute images or train commercial models on this data.
