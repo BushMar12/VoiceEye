@@ -19,6 +19,7 @@ public/ort-wasm/
 __pycache__/
 *.pyc
 venv*/
+.venv/
 
 # Training outputs
 VoiceEye_Runs/
@@ -41,6 +42,9 @@ public/models/*.onnx
 
 # Claude Code local config
 .claude/
+CLAUDE.md
+IMPLEMENTATION_PLAN.md
+docs/
 
 # Editor directories and files
 .vscode/*
