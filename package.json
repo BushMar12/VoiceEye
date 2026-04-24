@@ -8,9 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "phone": "npm run build && vite preview --host --port 5173",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "postinstall": "node -e \"const fs=require('fs');const src='node_modules/onnxruntime-web/dist';const dst='public/ort-wasm';try{fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).filter(f=>f.endsWith('.wasm') || f.endsWith('.mjs')).forEach(f=>fs.copyFileSync(src+'/'+f,dst+'/'+f));console.log('ORT WASM & MJS files copied to public/ort-wasm/');}catch(e){console.warn('WASM copy skipped:',e.message)}\""
+    "test:watch": "vitest"
   },
   "dependencies": {
     "lucide-react": "^1.8.0",

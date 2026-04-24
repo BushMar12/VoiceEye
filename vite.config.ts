@@ -1,8 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
-import { VitePWA } from 'vite-plugin-pwa'
 
+// PWA/service-worker is intentionally disabled right now. The generated SW was
+// caching the old 24 MB WASM on phones and intercepting fetches, which kept
+// OOM-crashing iOS Safari on load. Re-enable once the app is stable on mobile.
 // https://vite.dev/config/
 export default defineConfig({
   optimizeDeps: {
@@ -11,26 +13,11 @@ export default defineConfig({
   plugins: [
     react(),
     basicSsl(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      manifest: {
-        name: 'VoiceEye',
-        short_name: 'VoiceEye',
-        description: 'AI scene description assistant for the visually impaired',
-        theme_color: '#0f172a',
-        background_color: '#0f172a',
-        display: 'standalone',
-        start_url: '/',
-        orientation: 'portrait-primary',
-        categories: ['accessibility', 'health'],
-        icons: [
-          { src: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-          { src: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
-        ],
-      }
-    })
   ],
   server: {
+    watch: {
+      ignored: ['**/data/**', '**/runs/**', '**/venv/**', '**/venv_win/**']
+    },
     proxy: {
       '/api/ollama': {
         target: 'http://127.0.0.1:11434',

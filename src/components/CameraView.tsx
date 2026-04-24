@@ -32,13 +32,22 @@ const CameraView: React.FC<CameraViewProps> = ({ onVideoReady, onError, isProces
     const startCamera = async (attempt: number) => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
+          video: {
+            facingMode: 'environment',
+            width:     { ideal: 1280, max: 1920 },
+            height:    { ideal: 720,  max: 1080 },
+            frameRate: { ideal: 30,   max: 30   },
+          },
+          audio: true,
         });
         if (cancelled) {
           stream.getTracks().forEach(t => t.stop());
           return;
         }
+        
+        // Stop the audio track immediately so we don't hog the mic,
+        // we only requested it to pre-warm the permission for SpeechRecognition
+        stream.getAudioTracks().forEach(t => t.stop());
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;

@@ -17,7 +17,7 @@ VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives vi
 - **Feedback**: Batched TTS per frame plus haptic vibration patterns; 440Hz de-escalation tone when an object exits the danger zone
 
 ### Slow Lane (Deep Context VLM)
-- **Engine**: Qwen2.5-VL via local Ollama API
+- **Engine**: Qwen3-VL via local Ollama API
 - **Function**: Scene description, text extraction (OCR), and targeted object search
 - **Trigger**: Tap the screen or use a voice command
 - **Timeout**: 15-second AbortController timeout with spoken error feedback
@@ -56,9 +56,8 @@ VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives vi
 | **Object Detection** | YOLO26n via ONNX Runtime Web (WASM) |
 | **Object Tracking** | IoU-based multi-object tracker with velocity estimation |
 | **Distance Estimation** | Pinhole camera model with known object heights |
-| **Vision-Language Model** | Qwen2.5-VL (local via Ollama) |
+| **Vision-Language Model** | Qwen3-VL (local via Ollama) |
 | **Styling** | Vanilla CSS — glassmorphism design system |
-| **PWA** | vite-plugin-pwa |
 | **Testing** | Vitest + Testing Library |
 | **MLOps** | ClearML + Ultralytics YOLO + Optuna HPO |
 | **CI/CD** | GitHub Actions |
@@ -86,7 +85,7 @@ Both scripts auto-install dependencies and open the browser.
 #### 1. Prepare the Ollama VLM
 ```bash
 ollama serve                # Start the API server
-ollama run qwen2.5vl        # Pull + verify the model
+ollama run qwen3-vl:2b        # Pull + verify the model
 ```
 
 #### 2. Prepare the YOLO Model
@@ -101,14 +100,35 @@ yolo export model=yolo26n.pt format=onnx imgsz=640
 ```bash
 npm install
 ```
-> The `postinstall` script automatically copies ONNX Runtime WASM files to `public/ort-wasm/`.
+ONNX Runtime Web ships its WASM binary via the `onnxruntime-web/wasm` sub-import,
+and Vite bundles only the non-threaded, non-JSEP variant (~12 MB) into `dist/assets/`.
+No manual WASM copy step is required.
 
-#### 4. Run the Dev Server
+#### 4. Run the App
+
+**Desktop (development):**
 ```bash
-npm run dev                    # Desktop: https://localhost:5173
-npm run dev -- --host          # Mobile: exposes on local network IP
+npm run dev
 ```
-> On your phone, open the `https://` URL and accept the self-signed certificate warning. Camera and microphone require HTTPS.
+Opens `https://localhost:5173` with hot-module reload.
+
+**Phone (production preview — use this for phone testing):**
+```bash
+npm run phone
+```
+Builds a production bundle and serves it on your local network IP at port 5173.
+Open `https://<your-local-ip>:5173` on your phone and accept the self-signed certificate warning.
+
+> **If a previous build crashed the page on your phone** (you see
+> "A problem repeatedly occurred"), the old service worker is still cached.
+> In Safari iOS: **Settings → Safari → Advanced → Website Data → search
+> `192.168.x.x` → Delete**, then reopen the URL. The new build unregisters
+> the service worker automatically on first load.
+
+> **Important:** Do not use `npm run dev -- --host` to test on your phone.
+> Safari iOS will crash the tab (OOM kill, ~5 s refresh loop) because the dev server
+> ships unminified bundles, source maps, and StrictMode double-mounts — roughly 3–5×
+> the memory footprint of a production build.
 
 #### 5. Run Tests
 ```bash

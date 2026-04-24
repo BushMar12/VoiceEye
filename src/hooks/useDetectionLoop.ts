@@ -65,6 +65,13 @@ export function useDetectionLoop({
     let lastInferenceTime = 0;
 
     const runDetection = async () => {
+      // Pause entirely when the tab is backgrounded — Safari keeps charging memory
+      // even for throttled rAF calls, which can trigger an OOM kill on return.
+      if (document.hidden) {
+        animationFrameId = requestAnimationFrame(runDetection);
+        return;
+      }
+
       if (videoElement && model && !isProcessingSlowLane) {
         const now = performance.now();
 

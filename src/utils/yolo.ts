@@ -1,9 +1,14 @@
-import * as ort from 'onnxruntime-web';
+// Use the `/wasm` sub-import so Vite only bundles the WASM-only variant
+// (~12 MB `ort-wasm-simd-threaded.wasm`) instead of the 24 MB JSEP/WebGPU variant
+// that ships with the default `onnxruntime-web` entry point. The extra 12 MB of
+// WASM was enough to repeatedly OOM-kill the iOS Safari renderer on page load.
+import * as ort from 'onnxruntime-web/wasm';
 
-// Single-threaded WASM to avoid SharedArrayBuffer / COOP header requirements
+// Single-threaded WASM so we don't require SharedArrayBuffer / COOP+COEP headers
+// (Vite preview doesn't send them, and iOS Safari handles threaded WASM poorly).
 ort.env.wasm.numThreads = 1;
-// Use absolute path to bypass Vite's "import from public" restriction
-ort.env.wasm.wasmPaths = window.location.origin + '/ort-wasm/';
+// No wasmPaths override — let Vite serve the hashed bundle it emitted, so we
+// don't accidentally fetch a stale / larger variant from /public.
 
 export interface Detection {
   bbox: [number, number, number, number]; // [x, y, w, h] in video pixel coords
@@ -29,6 +34,7 @@ const YOLO_CLASSES: string[] = [
 import { YOLO_INPUT_SIZE, YOLO_DEFAULT_CONF, YOLO_IOU_THRESHOLD, MAX_DETECTIONS_PER_FRAME } from '../config';
 
 // ── Reusable preprocessing resources (lazy-init singleton) ──────────────
+let _disposeMissedWarned = false; // one-time warn when tensor.dispose is unavailable
 let _canvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 let _ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
 let _float32: Float32Array | null = null;
@@ -43,7 +49,10 @@ function getResources() {
       c.height = YOLO_INPUT_SIZE;
       _canvas = c;
     }
-    _ctx = _canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+    // willReadFrequently: true keeps a CPU-side pixel buffer so Safari avoids a
+    // GPU→CPU round-trip on every getImageData call (the main per-frame cost on iOS).
+    _ctx = _canvas.getContext('2d', { willReadFrequently: true }) as
+      CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
     _float32 = new Float32Array(3 * YOLO_INPUT_SIZE * YOLO_INPUT_SIZE);
   }
   return { canvas: _canvas, ctx: _ctx!, float32: _float32! };
@@ -80,7 +89,8 @@ function preprocessFrame(video: HTMLVideoElement): PreprocessResult {
   ctx.fillRect(0, 0, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE);
   ctx.drawImage(video, padX, padY, nw, nh);
 
-  const { data } = ctx.getImageData(0, 0, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE);
+  // willReadFrequently on the context avoids a GPU→CPU round-trip on every getImageData call
+  const { data } = (ctx as CanvasRenderingContext2D).getImageData(0, 0, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE);
   const pixels = YOLO_INPUT_SIZE * YOLO_INPUT_SIZE;
 
   // Convert RGBA → float32 NCHW [1, 3, 640, 640], normalised to [0, 1]
@@ -213,9 +223,21 @@ export async function runYolo(
 
       return nms(detections, YOLO_IOU_THRESHOLD).slice(0, MAX_DETECTIONS_PER_FRAME);
     } finally {
-      Object.values(results).forEach(t => t.dispose?.());
+      for (const t of Object.values(results)) {
+        if (typeof t.dispose === 'function') {
+          t.dispose();
+        } else if (!_disposeMissedWarned) {
+          _disposeMissedWarned = true;
+          console.warn('[VoiceEye] ort.Tensor.dispose not available — output tensors may leak memory.');
+        }
+      }
     }
   } finally {
-    tensor.dispose?.();
+    if (typeof tensor.dispose === 'function') {
+      tensor.dispose();
+    } else if (!_disposeMissedWarned) {
+      _disposeMissedWarned = true;
+      console.warn('[VoiceEye] ort.Tensor.dispose not available — input tensor may leak memory.');
+    }
   }
 }
