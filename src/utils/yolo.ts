@@ -16,19 +16,16 @@ export interface Detection {
   score: number;
 }
 
-// YOLOv8 COCO-80 class names
+// Class names for the current Fast Lane model (`public/models/best.onnx`).
+// The order must match the exported ONNX model metadata exactly.
 const YOLO_CLASSES: string[] = [
-  'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
-  'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat',
-  'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack',
-  'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball',
-  'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket',
-  'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
-  'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair',
-  'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse',
-  'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
-  'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier',
-  'toothbrush',
+  'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck', 'traffic light',
+  'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'backpack',
+  'umbrella', 'handbag', 'suitcase', 'bottle', 'cup', 'fork', 'knife', 'spoon',
+  'bowl', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv',
+  'laptop', 'mouse', 'keyboard', 'cell phone', 'microwave', 'oven', 'sink',
+  'refrigerator', 'book', 'clock', 'vase', 'scissors', 'stairs', 'curb',
+  'crosswalk', 'pole', 'bollard', 'door',
 ];
 
 import { YOLO_INPUT_SIZE, YOLO_DEFAULT_CONF, YOLO_IOU_THRESHOLD, MAX_DETECTIONS_PER_FRAME } from '../config';
