@@ -1,0 +1,25 @@
+# Cloudflare Pages custom headers.
+# Syntax: https://developers.cloudflare.com/pages/configuration/headers/
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(self), accelerometer=(self), gyroscope=(self)
+
+# Hashed Vite bundles — safe to cache forever.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# YOLO ONNX weights are content-addressable enough for long caching.
+/models/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Ensure the ORT WebAssembly module serves with the correct MIME
+# so browsers can use WebAssembly.instantiateStreaming().
+/*.wasm
+  Content-Type: application/wasm
+  Cache-Control: public, max-age=31536000, immutable
+
+# The service worker (if re-enabled) must never be cached.
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate

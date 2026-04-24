@@ -21,7 +21,7 @@ export const HAPTIC_SINGLE_PULSE_THRESHOLD = 0.5;
 export const YOLO_INPUT_SIZE = 640;
 export const YOLO_DEFAULT_CONF = 0.5;
 export const YOLO_IOU_THRESHOLD = 0.45;
-export const YOLO_MODEL_PATH = '/models/yolo26n.onnx';
+export const YOLO_MODEL_PATH = '/models/best.onnx';
 
 // ── Distance Estimation ────────────────────────────────────────────────
 export const DEFAULT_OBJECT_HEIGHT_M = 0.50;
@@ -29,7 +29,27 @@ export const CAMERA_VFOV_DEG = 70;
 
 // ── VLM (Slow Lane) ───────────────────────────────────────────────────
 export const VLM_TIMEOUT_MS = 60_000;       // allow cold Ollama starts without false timeouts
-export const VLM_ENDPOINT = '/api/ollama/api/generate';
+
+// Resolve the Slow Lane endpoint at build time.
+//
+// Priority order:
+//   1. VITE_OLLAMA_URL — point at a custom Ollama-compatible server
+//      (e.g. a Cloudflare Tunnel to a local Ollama). Used by `npm run
+//      tunnel` and for private self-hosted setups.
+//   2. `vite dev` → /api/ollama — proxied to http://127.0.0.1:11434 by
+//      vite.config.ts for zero-setup local development.
+//   3. Production build → /api/vlm — Cloudflare Pages Function backed
+//      by Workers AI (see functions/api/vlm.ts).
+//
+// All three endpoints speak the same Ollama-compatible JSON body:
+//   POST <endpoint> { model, prompt, images: [b64], options, stream }
+// and return `{ response: string }`.
+const VLM_BASE_OVERRIDE = import.meta.env.VITE_OLLAMA_URL;
+export const VLM_ENDPOINT = VLM_BASE_OVERRIDE
+  ? `${VLM_BASE_OVERRIDE.replace(/\/$/, '')}/api/generate`
+  : import.meta.env.DEV
+    ? '/api/ollama/api/generate'
+    : '/api/vlm';
 export const VLM_MODEL = 'qwen3-vl:2b';
 export const VLM_IMAGE_QUALITY = 0.5;
 export const VLM_IMAGE_MAX_EDGE = 384;

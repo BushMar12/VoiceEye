@@ -10,7 +10,12 @@
     "preview": "vite preview",
     "phone": "npm run build && vite preview --host --port 5173",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cf:login": "wrangler login",
+    "tunnel": "node scripts/tunnel.mjs",
+    "tunnel:deploy": "node scripts/tunnel.mjs --deploy",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=voiceeye --branch=main --commit-dirty=true",
+    "deploy:preview": "npm run build && wrangler pages deploy dist --project-name=voiceeye --branch=preview --commit-dirty=true"
   },
   "dependencies": {
     "lucide-react": "^1.8.0",
@@ -19,6 +24,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260424.1",
     "@eslint/js": "^9.17.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -36,6 +42,7 @@
     "typescript-eslint": "^8.18.2",
     "vite": "^6.0.7",
     "vite-plugin-pwa": "^0.19.8",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.4",
+    "wrangler": "^4.84.1"
   }
 }

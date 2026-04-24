@@ -46,6 +46,17 @@ CLAUDE.md
 IMPLEMENTATION_PLAN.md
 docs/
 
+# Local env files (see .env.example for the schema)
+.env
+.env.local
+.env.*.local
+
+# Wrangler / Cloudflare Pages local state
+.wrangler/
+
+# Auto-downloaded binaries (cloudflared, etc.)
+.bin/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

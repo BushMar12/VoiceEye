@@ -89,11 +89,11 @@ ollama run qwen3-vl:2b        # Pull + verify the model
 ```
 
 #### 2. Prepare the YOLO Model
-Export YOLO26n to ONNX and place it at `public/models/yolo26n.onnx`:
+Export your trained YOLO model to ONNX and place it at `public/models/best.onnx`:
 ```bash
 pip install ultralytics
-yolo export model=yolo26n.pt format=onnx imgsz=640
-# Copy yolo26n.onnx → public/models/yolo26n.onnx
+yolo export model=best.pt format=onnx imgsz=640
+# Copy best.onnx → public/models/best.onnx
 ```
 
 #### 3. Install Dependencies
@@ -288,6 +288,137 @@ npm run preview          # Preview production build
 npm test                 # Run all tests (Vitest)
 npm run test:watch       # Watch mode
 ```
+
+---
+
+## Deploying to Cloudflare Pages
+
+VoiceEye is a static SPA — Cloudflare Pages gives it global HTTPS, edge caching,
+and free custom domains with zero server maintenance. The full 12 MB ONNX
+Runtime WASM bundle and the 9 MB YOLO model are both well under the 25 MB
+per-file limit.
+
+### 1. One-time setup
+
+```bash
+npm install                            # installs wrangler as a devDependency
+npm run cf:login                       # opens a browser to authorise Wrangler
+```
+
+Create the Pages project (only needed once — the first `npm run deploy`
+will also prompt to create it interactively):
+
+```bash
+npx wrangler pages project create voiceeye --production-branch=main
+```
+
+### 2. Ship a production build
+
+```bash
+npm run deploy                         # → https://voiceeye.pages.dev
+npm run deploy:preview                 # preview channel (separate URL)
+```
+
+Both scripts run `vite build` first, so the deployed bundle always matches the
+current working tree. `public/_headers` and `public/_redirects` are copied
+into `dist/` automatically and tell Cloudflare to:
+
+- serve `.wasm` with `Content-Type: application/wasm`
+- cache hashed `/assets/*`, `/models/*` and `*.wasm` for a year (`immutable`)
+- SPA-fallback every unknown path to `index.html`
+- lock the `camera`, `microphone`, `accelerometer`, and `gyroscope` permissions
+  to the site's own origin via `Permissions-Policy`
+
+### 3. Slow Lane (VLM) backends
+
+The Slow Lane picks an endpoint at build time, in this priority order:
+
+1. **`VITE_OLLAMA_URL` set** → point at any Ollama-compatible server (e.g. a
+   self-hosted Ollama reachable over a Cloudflare Tunnel). Used by
+   `npm run tunnel` during development when you want to exercise the exact
+   same Qwen3-VL model the app was tuned against. See `.env.example`.
+2. **`vite dev`** → `/api/ollama/api/generate`, proxied to `127.0.0.1:11434`
+   by `vite.config.ts`. Zero-setup dev loop with a local Ollama.
+3. **Production build (default)** → `/api/vlm`, a [Cloudflare Pages Function](https://developers.cloudflare.com/pages/functions/) that
+   runs [Workers AI](https://developers.cloudflare.com/workers-ai/) at the edge
+   (see `functions/api/vlm.ts`). No tunnel, no Mac, no server to babysit.
+
+#### Option 3a — Workers AI (recommended, default)
+
+Already wired up — `npm run deploy` ships `functions/api/vlm.ts` alongside
+the static bundle. The function uses the `[ai]` binding in `wrangler.toml`
+and calls `@cf/meta/llama-3.2-11b-vision-instruct` by default. No secrets
+needed; the binding is provisioned automatically for your Pages project.
+
+First-time gotcha: Meta's Llama Vision models require a one-time license
+acceptance on your Cloudflare account. After the first deploy, send the
+literal prompt `agree` once and you're unlocked forever:
+
+```bash
+curl -X POST https://voiceeye.pages.dev/api/vlm \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"agree","images":["<any-base64-jpeg>"]}'
+```
+
+You'll get back *"Thank you for agreeing to this model's terms."* The next
+real request will work. Free tier covers personal use comfortably — usage is
+visible in the Cloudflare dashboard under **Workers AI → Analytics**.
+
+To switch models, override `VLM_MODEL` in the Pages project's
+**Settings → Environment variables** tab (or edit `wrangler.toml`). Options
+include `@cf/llava-hf/llava-1.5-7b-hf` (no license prompt) or any other
+vision model from the [Workers AI catalogue](https://developers.cloudflare.com/workers-ai/models/).
+
+#### Option 3b — tunnel a local Ollama (Qwen3-VL or anything else)
+
+The repo ships a helper that auto-downloads `cloudflared`, starts a free quick
+tunnel to your local Ollama, rewrites the `Host` header so Ollama accepts the
+request, and updates `.env.local` with the public URL:
+
+```bash
+# Terminal 1 — keep this running; tunnel lives as long as the process does
+npm run tunnel                      # start tunnel, update .env.local
+# or:
+npm run tunnel:deploy               # same, then trigger `npm run deploy` once the URL is ready
+```
+
+Then tell your Ollama to trust the Pages origin **once**. On macOS (menu-bar app):
+
+```bash
+launchctl setenv OLLAMA_ORIGINS "*"
+# → quit the Ollama menu-bar icon and relaunch Ollama.app
+```
+
+On macOS (`ollama serve` in a terminal) or Linux:
+
+```bash
+OLLAMA_ORIGINS="*" ollama serve
+```
+
+For a stricter allow-list replace `*` with
+`https://voiceeye.pages.dev,https://*.voiceeye.pages.dev`.
+
+Verify from any terminal — a `200` with an `access-control-allow-origin` header
+means the Slow Lane will work end-to-end:
+
+```bash
+curl -i -H "Origin: https://voiceeye.pages.dev" \
+  "$(grep VITE_OLLAMA_URL .env.local | cut -d= -f2)/api/tags"
+```
+
+> **Quick tunnels are ephemeral.** The `*.trycloudflare.com` URL is lost when
+> the `cloudflared` process exits (Ctrl-C, sleep, reboot). Re-run
+> `npm run tunnel:deploy` to mint a new URL and ship it in a fresh build.
+> For a stable URL backed by your own domain, use a [named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/remote-management/).
+
+If you wire a persistent named tunnel, put the hostname in your Pages project's
+**Environment variables** tab instead of `.env.local` so every deploy inherits it.
+
+### 4. Custom domain
+
+In the Cloudflare Pages dashboard → **Custom domains → Set up a custom domain**.
+Cloudflare issues the TLS cert automatically; no DNS changes are needed if the
+domain is already on Cloudflare.
 
 ---
 
