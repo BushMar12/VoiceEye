@@ -414,11 +414,82 @@ curl -i -H "Origin: https://voiceeye.pages.dev" \
 If you wire a persistent named tunnel, put the hostname in your Pages project's
 **Environment variables** tab instead of `.env.local` so every deploy inherits it.
 
-### 4. Custom domain
+### 4. Protecting your Workers AI quota
+
+`functions/api/vlm.ts` already rejects any request whose `Origin` header
+isn't `https://voiceeye.pages.dev` (or `https://*.voiceeye.pages.dev` for
+preview deploys). That blocks casual abuse from other websites and from
+tools that don't forge an Origin, but a determined attacker can still spoof
+headers. Layer on one or both of the following for real protection.
+
+**Option A — Cloudflare Rate Limiting Rules (recommended, zero UX cost).**
+In the Cloudflare dashboard, navigate to
+**Security → WAF → Rate limiting rules → Create rule**, then:
+
+| Field | Value |
+| :--- | :--- |
+| **Field** | URI Path |
+| **Operator** | equals |
+| **Value** | `/api/vlm` |
+| **When rate exceeds** | 20 requests per 1 minute |
+| **Characteristic** | IP |
+| **Action** | Block |
+| **Duration** | 10 minutes |
+
+The free plan includes one rate-limiting rule, which is enough for this.
+
+**Option B — Cloudflare Access (nuclear, requires login).**
+For a truly private demo — only invited email addresses can open the site:
+**Zero Trust dashboard → Access → Applications → Add an application →
+Self-hosted**, set the app domain to `voiceeye.pages.dev`, add an Access
+policy allowing specific emails / Google accounts / GitHub users, and save.
+Visitors then see a Cloudflare login page before the site loads. Free tier
+supports 50 users.
+
+### 5. Extra allowed origins
+
+To let another domain (e.g. a custom domain, a personal site, or a local
+`wrangler pages dev` session) call `/api/vlm`, add it to the
+`VLM_ALLOWED_ORIGINS` env var in **Pages → Settings → Environment
+variables** as a comma-separated list. Sub-domain wildcards are supported:
+
+```text
+https://voiceeye.mydomain.com,https://*.voiceeye.mydomain.com
+```
+
+Setting `VLM_ALLOWED_ORIGINS="*"` disables the check (useful only for
+local development).
+
+### 6. Custom domain
 
 In the Cloudflare Pages dashboard → **Custom domains → Set up a custom domain**.
 Cloudflare issues the TLS cert automatically; no DNS changes are needed if the
-domain is already on Cloudflare.
+domain is already on Cloudflare. Don't forget to add the new hostname to
+`VLM_ALLOWED_ORIGINS` or the Slow Lane will 403.
+
+---
+
+## Continuous deployment via GitHub Actions
+
+The repo ships a workflow at `.github/workflows/pages-deploy.yml` that
+builds and deploys to Cloudflare Pages on every push to `main`. One-time
+setup:
+
+1. Create a scoped API token at
+   [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
+   with the **"Edit Cloudflare Workers"** template. The token needs
+   `Account → Cloudflare Pages → Edit` and `Account → Workers AI → Read`.
+2. In the GitHub repo, add two secrets under
+   **Settings → Secrets and variables → Actions → New repository secret**:
+   - `CLOUDFLARE_API_TOKEN` — the token from step 1.
+   - `CLOUDFLARE_ACCOUNT_ID` — your account ID (visible in the Cloudflare
+     dashboard URL, or in the output of `npx wrangler whoami`).
+3. Push to `main`. The Actions tab will show the deploy, and the URL is
+   printed at the end of the job.
+
+Pull requests automatically get a preview deployment on a unique
+`<hash>.voiceeye.pages.dev` URL, which is great for testing UI changes
+before merge.
 
 ---
 

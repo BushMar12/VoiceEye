@@ -18,3 +18,7 @@ binding = "AI"
 VLM_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"
 VLM_MAX_TOKENS = "512"
 VLM_TEMPERATURE = "0.2"
+# Extra Origins allowed to call /api/vlm beyond the built-in
+# voiceeye.pages.dev (+ sub-domains). Comma-separated; use "*" to
+# disable the check (e.g. when running `wrangler pages dev` locally).
+VLM_ALLOWED_ORIGINS = ""
