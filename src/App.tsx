@@ -10,6 +10,8 @@ import { useDetectionLoop } from './hooks/useDetectionLoop';
 import { FULL_INTRO_MESSAGE, SHORT_INTRO_MESSAGE, BBOX_MIN_SCORE } from './config';
 import './index.css';
 
+const HEARD_FLASH_MS = 2000;
+
 const App: React.FC = () => {
   // First-launch detection
   const hasLaunchedBefore = useRef(localStorage.getItem('voiceeye_launched') === 'true');
@@ -25,8 +27,8 @@ const App: React.FC = () => {
   // Mark first launch
   useEffect(() => { localStorage.setItem('voiceeye_launched', 'true'); }, []);
 
-  // Audio primitives
-  const { speak, speakQuick, playBeep } = useSpatialAudio();
+  // Audio primitives — isSpeaking is driven by SpeechSynthesisUtterance lifecycle events
+  const { unlockAudio, speak, speakQuick, playBeep, isSpeaking: ttsSpeaking } = useSpatialAudio();
 
   // VLM (Slow Lane)
   const vlm = useVLMEngine({
@@ -37,12 +39,29 @@ const App: React.FC = () => {
     setLatestMessage,
   });
 
+  // Hard-mute the mic any time the assistant is speaking OR the VLM is still speaking
+  const isAssistantSpeaking = ttsSpeaking || vlm.isSpeaking;
+
   // Keep a stable ref for voice recognition callbacks
   const vlmTriggerRef = useRef(vlm.trigger);
   useEffect(() => { vlmTriggerRef.current = vlm.trigger; }, [vlm.trigger]);
 
+  // Flash the UI briefly with what the speech engine actually heard
+  const heardFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onHeard = useCallback((transcript: string) => {
+    setLatestMessage(`Heard: "${transcript}"`);
+    if (heardFlashTimer.current) clearTimeout(heardFlashTimer.current);
+    heardFlashTimer.current = setTimeout(
+      () => setLatestMessage(defaultMessage),
+      HEARD_FLASH_MS,
+    );
+  }, [defaultMessage, setLatestMessage]);
+
   // Voice recognition
   const { isListening } = useVoiceRecognition({
+    enabled: !!videoElement,
+    isAssistantSpeaking,
+    isVLMBusy: vlm.isProcessing || vlm.isSpeaking,
     onDescribe: useCallback(() => {
       vlmTriggerRef.current('Describe', '');
     }, []),
@@ -52,6 +71,7 @@ const App: React.FC = () => {
     onSearch: useCallback((query: string) => {
       vlmTriggerRef.current('Search', query);
     }, []),
+    onHeard,
     playBeep,
     speakQuick,
   });
@@ -59,7 +79,7 @@ const App: React.FC = () => {
   // Fast Lane — detection + tracking
   const { renderedTracks } = useDetectionLoop({
     videoElement,
-    isProcessingSlowLane: vlm.isProcessing,
+    isProcessingSlowLane: vlm.isProcessing || vlm.isSpeaking,
     settings,
     speak,
     playBeep,
@@ -73,7 +93,7 @@ const App: React.FC = () => {
 
   // Render
   return (
-    <div className="app-container" onClick={() => vlm.trigger()}>
+    <div className="app-container" onClick={() => { unlockAudio(); vlm.trigger(); }}>
       <CameraView
         onVideoReady={setVideoElement}
         onError={handleCameraError}
@@ -159,13 +179,17 @@ const App: React.FC = () => {
                 Qwen: Deep Context
               </div>
             </div>
+
+            <p className="voice-hint" aria-hidden="true">
+              Say &ldquo;Voice Eye&rdquo; then: <strong>describe</strong> &middot; <strong>read</strong> &middot; <strong>find &lt;object&gt;</strong>
+            </p>
           </div>
 
           <div className="trigger-button-container">
             <div className={`trigger-radar ${vlm.isProcessing ? 'scanning' : ''}`}></div>
             <button
               className={`trigger-button ${vlm.isProcessing ? 'listening' : ''}`}
-              onClick={(e) => { e.stopPropagation(); vlm.trigger(); }}
+              onClick={(e) => { e.stopPropagation(); unlockAudio(); vlm.trigger(); }}
               aria-label="Describe scene"
             >
               <Eye size={36} />

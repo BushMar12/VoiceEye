@@ -11,7 +11,7 @@ VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives vi
 | Lane | Technology | Purpose |
 |------|-----------|---------|
 | **Fast Lane** | YOLO26n via ONNX Runtime Web | Real-time object detection + tracking, throttled to ~10fps |
-| **Slow Lane** | Qwen2.5-VL via Ollama (local) | On-demand deep scene description, OCR, and object search |
+| **Slow Lane** | Qwen3-VL via Ollama (local) | On-demand deep scene description, OCR, and object search |
 
 The two lanes run independently. Fast Lane feeds a continuous `requestAnimationFrame` loop (inference throttled to ~10fps via `performance.now()`). Slow Lane is triggered by voice command or screen tap.
 
@@ -24,7 +24,7 @@ The two lanes run independently. Fast Lane feeds a continuous `requestAnimationF
 | Framework | React 19 + TypeScript 6 |
 | Build tool | Vite 8 |
 | Object detection | ONNX Runtime Web + YOLO26n |
-| Vision-language model | Qwen2.5-VL (via Ollama REST API) |
+| Vision-language model | Qwen3-VL (via Ollama REST API) |
 | Icons | Lucide React |
 | Styling | Vanilla CSS — glassmorphism design system |
 | PWA | vite-plugin-pwa |
@@ -76,7 +76,7 @@ npm run preview            # Preview production build locally
 ### Ollama (for Slow Lane VLM)
 ```bash
 ollama serve               # Starts REST API on http://127.0.0.1:11434
-ollama run qwen2.5vl       # Pull + verify the Qwen model
+ollama run qwen3-vl:2b       # Pull + verify the Qwen model
 ```
 Vite proxies `/api/ollama/*` to `http://127.0.0.1:11434` — removing CORS headers automatically.
 

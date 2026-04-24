@@ -23,8 +23,15 @@ venv*/
 # Training outputs
 VoiceEye_Runs/
 runs/
+data/
 
 # Model files (fetched from ClearML, not stored in git)
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.weights
+*.onnx
 public/models/*.onnx
 
 # OneDrive sync conflict files

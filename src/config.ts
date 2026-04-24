@@ -28,10 +28,13 @@ export const DEFAULT_OBJECT_HEIGHT_M = 0.50;
 export const CAMERA_VFOV_DEG = 70;
 
 // ── VLM (Slow Lane) ───────────────────────────────────────────────────
-export const VLM_TIMEOUT_MS = 15_000;       // abort VLM request after 15s
+export const VLM_TIMEOUT_MS = 60_000;       // allow cold Ollama starts without false timeouts
 export const VLM_ENDPOINT = '/api/ollama/api/generate';
-export const VLM_MODEL = 'qwen2.5vl';
-export const VLM_IMAGE_QUALITY = 0.7;
+export const VLM_MODEL = 'qwen3-vl:2b';
+export const VLM_IMAGE_QUALITY = 0.5;
+export const VLM_IMAGE_MAX_EDGE = 384;
+export const VLM_MAX_TOKENS = 1024;
+export const VLM_MAX_WORDS = 40;
 
 // ── Camera ─────────────────────────────────────────────────────────────
 export const CAMERA_MAX_RETRIES = 3;
@@ -52,7 +55,7 @@ export const METRICS_BUFFER_SIZE = 100;
 export const METRICS_LOG_INTERVAL = 300;    // log every N frames
 
 // ── UI Messages ────────────────────────────────────────────────────────
-export const FULL_INTRO_MESSAGE = "Camera ready. Tap the screen or say 'Voice Eye, describe' to read the scene.";
+export const FULL_INTRO_MESSAGE = "Camera ready. Tap the screen, or say Voice Eye describe, Voice Eye read, or Voice Eye find followed by an object.";
 export const SHORT_INTRO_MESSAGE = 'Ready';
 
 // ── Attention Pipeline ─────────────────────────────────────────────────
