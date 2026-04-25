@@ -27,22 +27,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Verify Cloudflare secrets are present
-        run: |
-          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
-            echo "::error::CLOUDFLARE_API_TOKEN is empty or unavailable to this job."
-            exit 1
-          fi
-          if [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
-            echo "::error::CLOUDFLARE_ACCOUNT_ID is empty or unavailable to this job."
-            exit 1
-          fi
-          echo "CLOUDFLARE_API_TOKEN length: ${#CFT}"
-          echo "CLOUDFLARE_ACCOUNT_ID length: ${#CFA}"
-        env:
-          CFT: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CFA: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
       - run: npm ci
 
       - name: Run tests
