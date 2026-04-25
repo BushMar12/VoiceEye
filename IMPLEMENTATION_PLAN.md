@@ -1,127 +1,216 @@
 # VoiceEye Implementation Plan
 
-## Phase 1: Foundation & Quality (Weeks 1-3) — COMPLETED
+Last updated: 25 April 2026  
+Current stage: End of Sprint 2 / Sprint 3 planning
+
+VoiceEye is the mobile-first web implementation of the original Scene-to-Speak proof of concept. The current product uses a two-lane architecture: a browser Fast Lane for real-time spatial awareness and a Slow Lane for on-demand scene description, visible text reading, and object search.
+
+## Current Release Snapshot
+
+| Area | Current Status |
+|---|---|
+| Frontend app | React 19 + TypeScript + Vite app implemented. |
+| Camera runtime | Browser camera view, retry/error handling, and spoken camera errors implemented. |
+| Fast Lane model | YOLO Fast Lane training completed. Deployable ONNX model exists. |
+| Fast Lane runtime | ONNX Runtime Web inference, tracking, distance estimation, attention filtering, overlays, speech, and haptics implemented. |
+| Slow Lane runtime | Describe / Read / Search flow implemented through an Ollama-compatible endpoint. |
+| Voice control | Wake-word recognition and command parsing implemented. |
+| Deployment | Vite production build and Cloudflare Pages deployment path implemented. |
+| Testing | `npm test` passed: 95 tests across 5 files. |
+| Build | `npm run build` passed. |
+| Python data-prep tests | Not currently runnable in the local `.venv`; `pytest` is missing. |
+| PWA service worker | Intentionally disabled for now because previous service-worker caching caused mobile Safari memory/cache issues. |
+
+## Sprint 2 Model Result
+
+YOLO Fast Lane training result:
+
+`runs/detect/VoiceEye_Runs/fastlane_train`
+
+Key artifacts:
+
+| Artifact | Purpose | Size |
+|---|---|---:|
+| `weights/best.pt` | Best PyTorch checkpoint | 5.2 MB |
+| `weights/last.pt` | Last PyTorch checkpoint | 5.2 MB |
+| `weights/best.onnx` | Browser deployment artifact | 9.4 MB |
+
+Observed metrics from Ultralytics plots:
+
+| Metric | Result |
+|---|---:|
+| Best all-class F1 | 0.52 at confidence 0.204 |
+| Final precision | about 0.62 |
+| Final recall | about 0.46 |
+| Final mAP50 | about 0.50 |
+| Final mAP50-95 | about 0.35 |
+
+Note: `results.csv` is not present in the run folder, so scalar metric values are plot-derived from `results.png` and `BoxF1_curve.png`.
+
+## Completed Work
+
+### Phase 1: Foundation and Quality - Completed
 
 | Task | Status |
-|------|--------|
-| Add Vitest + testing infrastructure | Done |
-| Write unit tests for tracker, distance, inferenceMetrics (35 tests) | Done |
-| Decompose App.tsx into custom hooks (446 → 165 lines) | Done |
+|---|---|
+| Add Vitest and testing infrastructure | Done |
+| Add tests for tracker, distance, inference metrics, attention, and voice command parsing | Done |
+| Decompose app behavior into custom hooks | Done |
 | Add React error boundary with TTS feedback | Done |
-| Centralize magic numbers into `src/config.ts` (40+ constants) | Done |
-| Add VLM request timeout (15s) + deduplication | Done |
-| Enable TypeScript strict null checks | Done |
-| Add spoken error for VLM unavailability (3 error paths) | Done |
+| Centralize tunable constants in `src/config.ts` | Done |
+| Add VLM timeout and spoken error handling | Done; current timeout is 60 seconds to allow cold starts |
+| Enable TypeScript build validation | Done |
+| Add frontend production build path | Done |
 
----
+### Phase 2: Mobile Product Prototype - Completed
 
-## Phase 2: User Experience (Weeks 4-6)
+| Task | Status |
+|---|---|
+| Full-screen browser camera UI | Done |
+| Real-time bounding-box overlay | Done |
+| YOLO ONNX model loading through ONNX Runtime Web | Done |
+| IoU tracker with persistent track IDs | Done |
+| Velocity and proximity zones | Done |
+| Pinhole-camera distance estimation | Done |
+| Attention pipeline with hazard tiers, clustering, cooldowns, and verbosity budget | Done |
+| Batched TTS announcements for Fast Lane alerts | Done |
+| Haptic warning patterns | Done |
+| De-escalation tone | Done |
+| Settings panel for TTS speed, sensitivity, verbosity, and haptics | Done |
+| Wake-word command parsing | Done |
+| Slow Lane Describe / Read / Search trigger flow | Done |
+| Local Ollama dev proxy | Done |
+| Cloudflare Pages Function for production VLM endpoint | Done |
+| Cloudflare Pages deployment scripts | Done |
+| Full pipeline diagram and Sprint 3 Jira tickets | Done |
+| Demo deck | Done |
 
-**Goal:** Fill gaps that real users would hit immediately.
+## Current Architecture
 
-| # | Task | Priority | Effort | Details |
-|---|------|----------|--------|---------|
-| 2.1 | Add "thinking..." spoken cue during VLM processing | High | 0.5 day | After the initial "Analyzing scene" message, add a periodic spoken cue every ~3s while VLM is processing so users know the app hasn't frozen. |
-| 2.2 | Add "help" voice command | High | 1 day | When user says "Voice Eye, help", speak a list of available commands: "You can say: Voice Eye describe, Voice Eye read, Voice Eye find [object]". Display the list in the message box. |
-| 2.3 | Add "what's around me" summary command | High | 1 day | New voice command "Voice Eye, what's around me" that reads out all currently tracked objects with distances and positions (left/center/right based on bbox centroid). |
-| 2.4 | Implement offline fallback + service worker caching | High | 2 days | Configure `vite-plugin-pwa` workbox to precache the ONNX model, WASM files, and app shell. Add offline fallback page. Fast Lane should work fully offline; show clear message when Slow Lane is unavailable. |
-| 2.5 | Add high-contrast theme toggle | Medium | 2 days | Add a "High Contrast" option to SettingsPanel. Uses solid black background, white text, high-contrast bounding box colors. Persisted to localStorage. Important for users with partial vision. |
-| 2.6 | Add confidence level to announcements | Medium | 1 day | Change TTS announcements to include confidence: "car, high confidence, ~2m" (>0.8), "person, moderate confidence, ~3m" (0.6-0.8). Helps users judge reliability. |
-| 2.7 | Camera selection UI (front/back toggle) | Medium | 1 day | Add a camera flip button to the header. Useful for reading documents (front camera) vs navigation (back camera). Restart stream on toggle. |
-| 2.8 | Persistent error indicators | Medium | 1 day | Add a status bar showing system health: model loaded, camera active, Ollama reachable. Red/green indicators. Errors persist visually (not just spoken once). |
-| 2.9 | VLM processing progress feedback | Medium | 1 day | Replace silent wait with spoken progress: "Analyzing..." at 0s, "Still working..." at 5s, "Almost done..." at 10s. Gives users a sense of progress. |
-
----
-
-## Phase 3: Performance & Robustness (Weeks 7-9)
-
-**Goal:** Make it reliable for daily use.
-
-| # | Task | Priority | Effort | Details |
-|---|------|----------|--------|---------|
-| 3.1 | Replace DOM bounding boxes with canvas overlay | Medium | 2 days | Current implementation creates a `<div>` per tracked object every frame. For >10 objects, this causes layout thrashing. Switch to a single `<canvas>` overlay and draw boxes via `CanvasRenderingContext2D`. |
-| 3.2 | Adaptive inference throttling | High | 2 days | Measure actual inference latency per device. If avg latency > 150ms, reduce target FPS. If < 50ms, increase. This adapts to phone capability automatically. Store device profile in localStorage. |
-| 3.3 | ONNX model quantization (float32 → int8) | High | 2 days | Quantize the YOLO model to int8 using ONNX quantization tools. ~4x size reduction (5.5MB → ~1.4MB), faster inference on mobile. Validate mAP doesn't drop below quality gate. |
-| 3.4 | Battery-aware mode | Medium | 1 day | Use the Battery Status API (`navigator.getBattery()`). When battery < 20%, reduce inference FPS to 5fps and show "Battery saver mode" message. When < 10%, pause Fast Lane entirely. |
-| 3.5 | Inference metrics export | Low | 1 day | Add a button in Settings to export inference metrics as JSON. Useful for debugging performance issues on specific devices. |
-| 3.6 | WASM cold-start optimization | Medium | 1 day | Measure and log WASM + model load time. Speak "Model loaded, ready" once initialization completes. Add loading progress indicator. Currently there's no feedback during the 2-5s model load. |
-| 3.7 | Optimize getImageData buffer reuse | Low | 1 day | Currently `getImageData()` allocates a new `Uint8ClampedArray` per inference frame. Investigate reusing the buffer via `getImageData(0, 0, w, h, { willReadFrequently: true })` and pre-allocated storage. |
-
----
-
-## Phase 4: Accessibility Excellence (Weeks 10-12)
-
-**Goal:** Meet WCAG AAA and go beyond.
-
-| # | Task | Priority | Effort | Details |
-|---|------|----------|--------|---------|
-| 4.1 | i18n infrastructure + first 3 languages | High | 3 days | Set up `react-i18next` or a lightweight alternative. Extract all user-facing strings. Add Spanish, Mandarin, and Arabic as first additional languages. TTS voice selection per locale. |
-| 4.2 | VoiceOver/TalkBack compatibility testing | Critical | 2 days | Test the full app flow with iOS VoiceOver and Android TalkBack. Fix focus order, announce dynamic content correctly, ensure bounding box labels don't spam screen readers. Document findings. |
-| 4.3 | Per-device FOV calibration | Medium | 2 days | Add a guided first-launch calibration step: "Hold a standard credit card at arm's length and tap when the edges align with the screen." Calculate actual FOV from known card dimensions. Improves distance accuracy from ~30% to ~10% error. |
-| 4.4 | Add "social" VLM mode | Medium | 2 days | New voice command: "Voice Eye, who's there?" Triggers VLM with prompt: "Describe the people in this image — how many, approximate ages, what they're doing, whether anyone is looking toward the camera." Critical for social interaction. |
-| 4.5 | Ground-level hazard detection | High | 3 days | Train or fine-tune YOLO model to detect curbs, steps, uneven surfaces, puddles, and construction zones. These cause the majority of injuries for visually impaired users but are not in COCO-80. Requires custom dataset collection. |
-| 4.6 | Customizable haptic patterns | Low | 1 day | Let users adjust vibration intensity (duration multiplier) and choose between vibration patterns in Settings. Some users are more sensitive to vibration than others. |
-| 4.7 | Speech rate auto-adjustment by urgency | Medium | 1 day | Danger-zone announcements speak at 1.5x speed regardless of user setting. Approaching-hazard warnings speak at 1.8x. Scene descriptions use the user's chosen rate. Urgency should be conveyed through pace. |
-
----
-
-## Phase 5: Ecosystem & Scale (Weeks 13+)
-
-**Goal:** Sustainable growth and real-world impact.
-
-| # | Task | Priority | Effort | Details |
-|---|------|----------|--------|---------|
-| 5.1 | Recruit 5-10 visually impaired beta testers | Critical | Ongoing | Partner with local vision impairment organizations or university accessibility labs. Structured feedback sessions with task-based testing (navigate a hallway, read a sign, find a chair). |
-| 5.2 | Opt-in anonymized telemetry | High | 2 days | Track: inference FPS by device, VLM latency, most-detected classes, feature usage (voice vs tap), error rates. Use a privacy-first approach — no images or location data leave the device. |
-| 5.3 | Automated model retraining pipeline | Medium | 3 days | Schedule periodic ClearML pipeline runs when new annotated data is available. Auto-evaluate against quality gate. If passes, create a PR with the new ONNX model via GitHub Actions. |
-| 5.4 | Docker container for training | Medium | 2 days | Create a `Dockerfile` for the training environment. Pin CUDA, PyTorch, and Ultralytics versions. Ensures reproducibility across machines and CI. |
-| 5.5 | Depth estimation (MiDaS or DepthAnything) | High | 3 days | Replace the pinhole camera model with a learned monocular depth estimator. MiDaS or DepthAnything v2 can run via ONNX. Provides per-pixel depth → much more accurate distance for all objects, not just known-height classes. |
-| 5.6 | Explore WebGPU backend for ONNX Runtime | Medium | 2 days | ONNX Runtime Web supports WebGPU on Chrome 113+. Benchmark against WASM on target devices. Expect 2-3x speedup on phones with capable GPUs. Fall back to WASM if WebGPU unavailable. |
-| 5.7 | Smart cane Bluetooth integration (research) | Low | Research | Investigate Bluetooth LE APIs for connecting to smart canes (WeWalk, etc). Potential: send directional haptic feedback to cane based on detection zones. Requires hardware partnership. |
-| 5.8 | Indoor navigation with landmark detection | Low | Research | Explore ARCore/ARKit Instant Placement for spatial anchors. Combined with YOLO detection of signs, doors, elevators → indoor wayfinding. Major feature, likely Phase 6+. |
-
----
-
-## Architecture After Phase 1
-
-```
+```text
 src/
-├── config.ts                    # All tunable constants (single source of truth)
-├── App.tsx                      # Slim orchestrator (~165 lines)
-├── main.tsx                     # Entry point with ErrorBoundary
-├── hooks/
-│   ├── useDetectionLoop.ts      # Fast Lane: YOLO inference + tracking + alerts
-│   ├── useVLMEngine.ts          # Slow Lane: Ollama VLM with timeout/dedup
-│   ├── useVoiceRecognition.ts   # Wake word + command parsing
-│   └── useSpatialAudio.ts       # TTS, beep, haptic primitives
+├── App.tsx                      # Main orchestrator for camera, settings, lanes, overlays, and UI state
+├── main.tsx                     # React entry point with ErrorBoundary
+├── config.ts                    # Central constants for detection, VLM, audio, attention, and UI
 ├── components/
-│   ├── CameraView.tsx           # Camera access + error recovery
-│   ├── SettingsPanel.tsx         # Settings UI + localStorage
-│   └── ErrorBoundary.tsx        # Crash recovery with TTS
+│   ├── CameraView.tsx           # Camera access, retry, and error recovery
+│   ├── SettingsPanel.tsx         # Persisted settings UI
+│   └── ErrorBoundary.tsx        # Crash recovery with spoken feedback
+├── hooks/
+│   ├── useDetectionLoop.ts      # Fast Lane: YOLO inference, tracking, attention, speech, haptics
+│   ├── useVLMEngine.ts          # Slow Lane: frame capture, prompt mode, endpoint call, timeout handling
+│   ├── useVoiceRecognition.ts   # Wake word and command parsing
+│   └── useSpatialAudio.ts       # Speech synthesis, beeps, audio unlock, haptic primitives
 ├── utils/
-│   ├── yolo.ts                  # ONNX session + pre/post-processing
-│   ├── tracker.ts               # IoU tracker + velocity + proximity
-│   ├── distance.ts              # Pinhole camera distance estimation
-│   ├── inferenceMetrics.ts      # Latency/FPS/confidence tracking
-│   ├── tracker.test.ts          # 14 tests
-│   ├── distance.test.ts         # 12 tests
-│   └── inferenceMetrics.test.ts # 9 tests
+│   ├── yolo.ts                  # ONNX Runtime Web model loading and YOLO pre/post-processing
+│   ├── tracker.ts               # IoU tracking, velocity, and proximity zone logic
+│   ├── attention.ts             # Alert priority, clustering, cooldown, and budget logic
+│   ├── distance.ts              # Monocular distance estimate
+│   └── inferenceMetrics.ts      # Runtime metrics tracking
 └── test/
     └── setup.ts                 # Vitest setup
 ```
 
----
+Supporting paths:
+
+| Path | Purpose |
+|---|---|
+| `public/models/best.onnx` | Runtime YOLO model loaded by the browser app. |
+| `functions/api/vlm.ts` | Cloudflare Pages Function for production Slow Lane VLM calls. |
+| `training/` | YOLO training, ClearML pipeline, HPO, and model-card support. |
+| `training/data_prep/` | COCO / Open Images / Mapillary data preparation pipeline. |
+| `runs/detect/VoiceEye_Runs/fastlane_train` | Completed Fast Lane YOLO training result. |
+| `docs/full-pipeline-diagram.md` | Editable full project pipeline diagram. |
+| `docs/sprint-3-jira-tickets.md` | Sprint 3 Jira-ready ticket plan. |
+
+## Phase 3: Validation, Benchmarking, and Demo Hardening - Current Priority
+
+Sprint 3 should focus on proving the Sprint 2 implementation on real devices rather than adding large new features.
+
+| # | Task | Priority | Details |
+|---|---|---|---|
+| 3.1 | Promote and document trained model artifact | Critical | Confirm `runs/.../best.onnx` and `public/models/best.onnx` are the intended same release artifact. Record checksum, run path, metrics, and limitations. |
+| 3.2 | Desktop browser benchmark | High | Measure model load time, average inference latency, p95 latency, FPS, memory observations, and browser version using a production build. |
+| 3.3 | Phone browser benchmark | Critical | Test at least one real iOS or Android phone with live camera input. Record FPS, crashes, thermal behavior, battery observations, speech, haptics, and bounding-box behavior. |
+| 3.4 | Tune detection confidence threshold | High | Training F1 curve peaks at confidence 0.204, while the app default is higher. Tune based on live precision/recall tradeoff, not plot data alone. |
+| 3.5 | Validate local Ollama Slow Lane | High | Test Describe, Read, and Search through the frontend with local Qwen/Ollama. Record latency, usefulness, hallucinations, and failure modes. |
+| 3.6 | Validate Cloudflare Workers AI Slow Lane | High | Test deployed `/api/vlm`, CORS/origin checks, timeout behavior, and model response quality. |
+| 3.7 | Build phone compatibility matrix | High | Track camera, mic, SpeechRecognition, SpeechSynthesis, vibration, audio unlock, and standalone behavior by device/browser. |
+| 3.8 | Graceful fallback for unsupported voice recognition | Medium | If SpeechRecognition is unavailable, keep tap-based use working and provide a clear user message. |
+| 3.9 | Calibrate hazard alert behavior | Critical | Use live scenes to tune proximity thresholds, cooldowns, clustering, verbosity budgets, and haptic behavior. |
+| 3.10 | Accessibility audit | High | Check labels, aria-live behavior, contrast, tap targets, focus behavior, and screen-reader behavior. |
+| 3.11 | Restore Python data-prep test environment | High | Install or document the required Python environment so `python -m pytest training/data_prep/tests/ -q` runs. |
+| 3.12 | Prepare user testing protocol | High | Draft supervised testing tasks, safety constraints, consent/privacy wording, and observation template. |
+| 3.13 | Reconcile documentation naming | Medium | Make docs consistently explain the transition from Scene-to-Speak desktop POC to VoiceEye mobile PWA. |
+| 3.14 | Prepare Sprint 3 demo script | Medium | Keep a repeatable demo path with fallback screenshots/expected outputs if phone or VLM fails live. |
+
+See `docs/sprint-3-jira-tickets.md` for the full Jira-ready Sprint 3 backlog.
+
+## Deferred or Re-scoped Items
+
+These items were previously listed as near-term work, but should not block the Sprint 3 demo unless validation shows they are necessary.
+
+| Item | Current Decision |
+|---|---|
+| Offline fallback and service worker caching | Deferred. Service worker is disabled until mobile memory/cache stability is proven. |
+| High-contrast theme | Valuable, but after core phone validation and accessibility audit. |
+| Confidence wording in every announcement | Deferred until alert calibration; may increase cognitive load. |
+| Camera front/back selector | Useful for document reading, but lower priority than current camera reliability and phone compatibility. |
+| Canvas overlay replacement | Consider only if phone benchmarks show DOM overlay performance issues. |
+| Adaptive inference throttling | Sprint 3 should first collect real latency data; adaptive logic can follow. |
+| ONNX int8 quantization | Useful for size/speed, but must be evaluated after baseline ONNX runtime measurements. |
+| Battery-aware mode | Depends on browser support and benchmark results. |
+| i18n / multi-language support | Later accessibility phase after English flow is validated. |
+| Social VLM mode | Later feature; avoid face/age-sensitive claims until safety/privacy review. |
+| Learned depth estimation | Later research item; current distance model remains approximate. |
+| WebGPU backend | Later optimization after WASM baseline is measured. |
+
+## Phase 4: Accessibility and User Readiness
+
+| # | Task | Priority | Details |
+|---|---|---|---|
+| 4.1 | VoiceOver / TalkBack compatibility testing | Critical | Validate the full app flow with mobile screen readers. |
+| 4.2 | High-contrast and low-vision UI mode | High | Add a high-contrast option if the accessibility audit confirms need. |
+| 4.3 | Per-device FOV calibration | Medium | Improve distance estimation by calibrating the camera field of view. |
+| 4.4 | User testing with visually impaired participants | Critical | Run supervised task-based testing only after Sprint 3 safety checklist is complete. |
+| 4.5 | Ground-level hazard dataset expansion | High | Improve detection for curbs, stairs, crosswalks, poles, bollards, and doors. |
+| 4.6 | Customizable haptic patterns | Medium | Support vibration sensitivity preferences. |
+| 4.7 | Speech urgency tuning | Medium | Explore faster or shorter speech for danger-zone alerts after user feedback. |
+
+## Phase 5: Ecosystem and Scale
+
+| # | Task | Priority | Details |
+|---|---|---|---|
+| 5.1 | Automated model retraining pipeline | Medium | Use ClearML and GitHub Actions to evaluate and promote new ONNX models through PRs. |
+| 5.2 | Docker container for training | Medium | Pin Python, CUDA, PyTorch, Ultralytics, and data-prep dependencies. |
+| 5.3 | Opt-in privacy-preserving telemetry | High | Only after privacy review; never collect images or location. |
+| 5.4 | WebGPU backend investigation | Medium | Benchmark ONNX Runtime WebGPU where supported; keep WASM fallback. |
+| 5.5 | Learned depth estimation | Medium | Evaluate MiDaS or DepthAnything ONNX if mobile runtime budget allows. |
+| 5.6 | Smart cane or wearable integration research | Low | Explore BLE haptic routing after core phone app is validated. |
+| 5.7 | Indoor navigation research | Low | Explore landmarks, signs, doors, elevators, and AR anchors as a later phase. |
 
 ## Success Criteria
 
-| Metric | Current | Phase 2 Target | Phase 4 Target |
-|--------|---------|----------------|----------------|
-| Test coverage | ~80% on utils | 80% utils, 50% hooks | 80%+ overall |
-| TypeScript strict | Enabled | Maintained | Maintained |
-| Lighthouse PWA score | ~60 | 90+ | 95+ |
-| Languages supported | 1 (English) | 1 | 4 |
-| WCAG compliance | Partial AA | AA | AAA |
-| User studies | 0 | 0 | 5-10 participants |
-| Inference FPS (mid-range phone) | ~8-10 | ~8-10 | 12-15 (WebGPU) |
-| VLM timeout handling | None → 15s | 15s | 15s |
-| Offline Fast Lane | No | Yes | Yes |
+| Metric | Current | Sprint 3 Target | Later Target |
+|---|---:|---:|---:|
+| Frontend tests | 95 passing | Maintained | Broaden hook/component coverage |
+| Production build | Passing | Maintained | CI enforced |
+| Fast Lane model artifact | Trained ONNX exists | Provenance + runtime checksum documented | Automated promotion pipeline |
+| Desktop browser inference | Not measured in current report | Baseline measured | Regression tracked |
+| Phone browser inference | Not measured in current report | At least one target phone measured | Device matrix expanded |
+| Slow Lane local Ollama | Flow implemented | Live quality/latency evaluated | Prompt tuned |
+| Slow Lane Cloudflare | Function implemented | Deployed flow verified | Rate limits / access protection reviewed |
+| Voice command fallback | Basic support | Unsupported-browser fallback implemented | Full compatibility matrix |
+| Accessibility audit | Pending | Completed | User testing completed |
+| Python data-prep tests | Blocked by missing pytest | Restored and recorded | CI validated |
+| Offline Fast Lane | Deferred | Do not re-enable until mobile cache stability is proven | Reconsider after benchmarks |
+
+## Immediate Next Actions
+
+1. Verify whether `public/models/best.onnx` matches `runs/detect/VoiceEye_Runs/fastlane_train/weights/best.onnx`.
+2. Add model provenance documentation with checksum and plot-derived metrics.
+3. Run production desktop benchmark for Fast Lane inference.
+4. Run phone benchmark using `npm run phone` or Cloudflare Pages deployment.
+5. Validate Slow Lane against local Ollama and Cloudflare Workers AI.
+6. Restore the Python test environment for `training/data_prep/tests`.
+7. Use the Sprint 3 Jira tickets in `docs/sprint-3-jira-tickets.md` to populate the next sprint board.
