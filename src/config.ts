@@ -93,6 +93,11 @@ export const EVICTION_AGE_PENALTY = 0.01;
 export const APPROACHING_GROWTH_THRESHOLD_ATTN = 0.05;
 export const APPROACHING_BOOST = 1.0;
 
+// Fast Lane speech gate. Rendering still shows detected objects, but TTS is
+// limited to safety-relevant tracks to reduce alert fatigue.
+export const SPEAK_SAFE_TIER1_HAZARDS = true;
+export const SPEAK_NEAR_OR_DANGER_OBJECTS = true;
+
 export const CLUSTER_MIN_MEMBERS = 3;
 export const CLUSTER_RADIUS_FRAC = 0.15;
 export const CLUSTER_MATCH_FRAC = 0.10;

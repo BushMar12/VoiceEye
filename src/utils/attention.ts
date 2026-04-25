@@ -7,6 +7,7 @@ import {
   CLUSTER_MIN_MEMBERS, CLUSTER_RADIUS_FRAC, CLUSTER_MATCH_FRAC, CLUSTER_COUNT_DELTA,
   BUDGET_WINDOW_MS, MAX_RENDERED_BOXES, VERBOSITY_K,
   PROXIMITY_DANGER_THRESHOLD, PROXIMITY_NEAR_THRESHOLD,
+  SPEAK_SAFE_TIER1_HAZARDS, SPEAK_NEAR_OR_DANGER_OBJECTS,
 } from '../config';
 
 export type AnnouncementReason = 'new' | 'zone-escalation' | 'approaching' | 'sustained';
@@ -173,6 +174,13 @@ function isHazardOverride(reason: AnnouncementReason, cls: string, lastZone: Pro
   return tier === 1 && reason === 'zone-escalation' && lastZone === 'safe' && zone === 'danger';
 }
 
+export function isSpeechEligible(cls: string, zone: ProximityZone): boolean {
+  const tier = HAZARD_TIER[cls] ?? DEFAULT_TIER;
+  if (SPEAK_NEAR_OR_DANGER_OBJECTS && zone !== 'safe') return true;
+  if (SPEAK_SAFE_TIER1_HAZARDS && tier === 1) return true;
+  return false;
+}
+
 function matchCluster(state: AttentionState, cls: string, centroid: [number, number], frameDiagonal: number): ClusterEntry | undefined {
   const radius = frameDiagonal * CLUSTER_MATCH_FRAC;
   for (const entry of state.clusters.values()) {
@@ -232,6 +240,14 @@ export function runAttention(
     const reason = detectReason(t, zone, cd, now);
     if (!reason) {
       // Still update the zone tracking in cooldown so transitions work next frame
+      if (cd) {
+        if (zone === 'danger' && cd.lastZone !== 'danger') cd.dangerEnteredAt = now;
+        cd.lastZone = zone;
+      }
+      continue;
+    }
+
+    if (!isSpeechEligible(t.class, zone)) {
       if (cd) {
         if (zone === 'danger' && cd.lastZone !== 'danger') cd.dangerEnteredAt = now;
         cd.lastZone = zone;
@@ -300,6 +316,8 @@ export function runAttention(
       if (p > priority) { priority = p; repZone = z; }
       if (m.bbox[2] * m.bbox[3] > repArea) { repArea = m.bbox[2] * m.bbox[3]; repBbox = m.bbox; }
     }
+
+    if (!isSpeechEligible(rc.class, repZone)) continue;
 
     const ann: Announcement = {
       kind: 'group',

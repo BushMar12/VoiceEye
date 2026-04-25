@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createAttentionState, computePriority, runAttention, type AttentionConfig, type Announcement } from './attention';
+import { createAttentionState, computePriority, isSpeechEligible, runAttention, type AttentionConfig, type Announcement } from './attention';
 import { updateTracks } from './tracker';
 import type { Detection } from './yolo';
 
@@ -211,11 +211,11 @@ describe('runAttention — first frame', () => {
   it('caps output at budgetK = 3 in normal mode', () => {
     const state = createAttentionState(0);
     const tracks = updateTracks([], [
-      d('person', 100, 100, 40, 80),
-      d('dog',    200, 100, 40, 80),
-      d('cat',    300, 100, 40, 80),
-      d('horse',  400, 100, 40, 80),
-      d('car',    500, 100, 40, 80),
+      d('car',        0, 100, 40, 80),
+      d('truck',    300, 100, 40, 80),
+      d('bus',      600, 100, 40, 80),
+      d('bicycle',  900, 100, 40, 80),
+      d('train',   1200, 100, 40, 80),
     ]);
     const out = runAttention(tracks, 0, state, cfg());
     expect(out.toAnnounce).toHaveLength(3);
@@ -306,7 +306,7 @@ describe('runAttention — render cap', () => {
 });
 
 describe('runAttention — clustering', () => {
-  it('collapses 3 people into a single group announcement', () => {
+  it('does not announce a safe group of people', () => {
     const state = createAttentionState(0);
     const tracks = updateTracks([], [
       d('person', 500, 300, 40, 80),
@@ -315,9 +315,62 @@ describe('runAttention — clustering', () => {
     ]);
     const out = runAttention(tracks, 0, state, cfg());
     const personAnn = out.toAnnounce.find(a => a.class === 'person');
+    expect(personAnn).toBeUndefined();
+  });
+
+  it('collapses 3 near people into a single group announcement', () => {
+    const state = createAttentionState(0);
+    const tracks = updateTracks([], [
+      d('person', 300, 30, 400, 650),
+      d('person', 340, 30, 400, 650),
+      d('person', 380, 30, 400, 650),
+    ]);
+    const out = runAttention(tracks, 0, state, cfg());
+    const personAnn = out.toAnnounce.find(a => a.class === 'person');
     expect(personAnn).toBeDefined();
     expect(personAnn!.kind).toBe('group');
     expect(personAnn!.memberCount).toBe(3);
+  });
+});
+
+describe('runAttention — speech eligibility gate', () => {
+  it('allows safe tier-1 hazards', () => {
+    expect(isSpeechEligible('car', 'safe')).toBe(true);
+  });
+
+  it('blocks safe people and safe background objects', () => {
+    expect(isSpeechEligible('person', 'safe')).toBe(false);
+    expect(isSpeechEligible('chair', 'safe')).toBe(false);
+    expect(isSpeechEligible('bottle', 'safe')).toBe(false);
+  });
+
+  it('allows near or danger objects regardless of class', () => {
+    expect(isSpeechEligible('person', 'near')).toBe(true);
+    expect(isSpeechEligible('chair', 'near')).toBe(true);
+    expect(isSpeechEligible('bottle', 'danger')).toBe(true);
+  });
+
+  it('does not announce a safe chair on first detection', () => {
+    const state = createAttentionState(0);
+    const tracks = updateTracks([], [d('chair', 100, 100, 40, 80)]);
+    const out = runAttention(tracks, 0, state, cfg());
+    expect(out.toAnnounce).toHaveLength(0);
+  });
+
+  it('announces a near chair on first detection', () => {
+    const state = createAttentionState(0);
+    const tracks = updateTracks([], [d('chair', 100, 100, 520, 500)]); // 28.2% → near
+    const out = runAttention(tracks, 0, state, cfg());
+    expect(out.toAnnounce).toHaveLength(1);
+    expect(out.toAnnounce[0].class).toBe('chair');
+    expect(out.toAnnounce[0].zone).toBe('near');
+  });
+
+  it('does not announce a safe person on first detection', () => {
+    const state = createAttentionState(0);
+    const tracks = updateTracks([], [d('person', 100, 100, 40, 80)]);
+    const out = runAttention(tracks, 0, state, cfg());
+    expect(out.toAnnounce).toHaveLength(0);
   });
 });
 
@@ -357,10 +410,10 @@ describe('runAttention — synthetic stress scenes', () => {
 
   it('empty room: 2 tier-3 chairs in Quiet mode — zero-or-one announcement', () => {
     // Two chairs are below CLUSTER_MIN_MEMBERS=3, individual tier-3 low priority.
-    // Documents the baseline: quiet mode is the "zero" case for background clutter.
+    // Documents the new speech gate: safe background clutter is silent.
     const dets = [d('chair', 100, 100, 40, 40), d('chair', 200, 100, 40, 40)];
     const quiet = runScene([dets, dets], 'quiet');
-    expect(quiet.length).toBeLessThanOrEqual(1);
+    expect(quiet.length).toBe(0);
   });
 
   it('approaching car: announced within 1s with `approaching` reason once tracked', () => {
@@ -379,21 +432,22 @@ describe('runAttention — synthetic stress scenes', () => {
     expect(anns.length).toBeGreaterThan(0);
   });
 
-  it('Quiet mode + pedestrian safe→danger step jump bypasses the budget', () => {
+  it('Quiet mode + pedestrian safe→danger becomes eligible but does not get tier-1 override', () => {
     const state = createAttentionState(0);
 
     // Frame 1: person in safe zone — sized to allow IoU match with frame-2 big bbox
     // 440*440/921600 = 21.0% → safe
     let tracks = updateTracks([], [d('person', 200, 200, 440, 440)]);
     let out = runAttention(tracks, 0, state, cfg({ verbosity: 'quiet' }));
-    expect(out.toAnnounce).toHaveLength(1);
+    expect(out.toAnnounce).toHaveLength(0);
 
     // Frame 2 (within same window at t=200): person bbox grows → danger zone
     // 1000*500/921600 = 54.3% → danger; IoU with frame-1 = 0.34 → matches
     tracks = updateTracks(tracks, [d('person', 100, 100, 1000, 500)]);
     out = runAttention(tracks, 200, state, cfg({ verbosity: 'quiet' }));
-    // Person is tier-2, not tier-1 → override does NOT apply. Candidate is suppressed by budget.
-    expect(out.toAnnounce.length).toBe(0);
+    // Person is now near/danger eligible and can speak because the quiet budget was not spent
+    // on the earlier safe person.
+    expect(out.toAnnounce.some(a => a.class === 'person' && a.zone === 'danger')).toBe(true);
 
     // Now same scenario with a car (tier-1) — override fires
     const state2 = createAttentionState(0);
