@@ -7,7 +7,7 @@ import { useSpatialAudio } from './hooks/useSpatialAudio';
 import { useVLMEngine } from './hooks/useVLMEngine';
 import { useVoiceRecognition } from './hooks/useVoiceRecognition';
 import { useDetectionLoop } from './hooks/useDetectionLoop';
-import { FULL_INTRO_MESSAGE, SHORT_INTRO_MESSAGE, BBOX_MIN_SCORE } from './config';
+import { FULL_INTRO_MESSAGE, SHORT_INTRO_MESSAGE, BBOX_MIN_SCORE, VLM_DISPLAY_LABEL } from './config';
 import './index.css';
 
 const HEARD_FLASH_MS = 2000;
@@ -176,7 +176,7 @@ const App: React.FC = () => {
               </div>
               <div className={`lane-badge ${vlm.isProcessing ? 'active' : ''}`}>
                 <ImageIcon size={14} />
-                Qwen: Deep Context
+                {VLM_DISPLAY_LABEL}
               </div>
             </div>
 

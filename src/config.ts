@@ -45,12 +45,19 @@ export const VLM_TIMEOUT_MS = 60_000;       // allow cold Ollama starts without 
 //   POST <endpoint> { model, prompt, images: [b64], options, stream }
 // and return `{ response: string }`.
 const VLM_BASE_OVERRIDE = import.meta.env.VITE_OLLAMA_URL;
+export const VLM_BACKEND = VLM_BASE_OVERRIDE || import.meta.env.DEV ? 'ollama' : 'cloudflare-workers-ai';
 export const VLM_ENDPOINT = VLM_BASE_OVERRIDE
   ? `${VLM_BASE_OVERRIDE.replace(/\/$/, '')}/api/generate`
   : import.meta.env.DEV
     ? '/api/ollama/api/generate'
     : '/api/vlm';
 export const VLM_MODEL = 'qwen3-vl:2b';
+export const VLM_DISPLAY_LABEL = VLM_BACKEND === 'ollama'
+  ? 'Qwen3-VL 2B: Deep Context'
+  : 'Workers AI: Deep Context';
+export const VLM_UNAVAILABLE_MESSAGE = VLM_BACKEND === 'ollama'
+  ? 'Scene description unavailable. The local Qwen3-VL engine is not running.'
+  : 'Scene description unavailable. The Cloudflare Workers AI backend is not responding.';
 export const VLM_IMAGE_QUALITY = 0.5;
 export const VLM_IMAGE_MAX_EDGE = 384;
 export const VLM_MAX_TOKENS = 1024;

@@ -3,6 +3,7 @@ import {
   VLM_TIMEOUT_MS,
   VLM_ENDPOINT,
   VLM_MODEL,
+  VLM_UNAVAILABLE_MESSAGE,
   VLM_IMAGE_QUALITY,
   VLM_IMAGE_MAX_EDGE,
   VLM_MAX_TOKENS,
@@ -58,7 +59,7 @@ async function processWithVLM(
     signal,
   });
 
-  if (!response.ok) return `API Error: ${response.statusText}. Please ensure Qwen is running.`;
+  if (!response.ok) return `API Error: ${response.statusText}. ${VLM_UNAVAILABLE_MESSAGE}`;
   const data = await response.json();
   console.info('Slow Lane completed', {
     ms: Math.round(performance.now() - startedAt),
@@ -136,7 +137,7 @@ export function useVLMEngine({
       } else {
         const isNetworkError = err instanceof TypeError && (err.message.includes('fetch') || err.message.includes('network'));
         const msg = isNetworkError
-          ? 'Scene description unavailable. The local AI engine is not running.'
+          ? VLM_UNAVAILABLE_MESSAGE
           : 'Sorry, I encountered an error analyzing the scene.';
         setLatestMessage(msg);
         speak(msg, undefined, ttsRate);
