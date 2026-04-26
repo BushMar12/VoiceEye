@@ -20,7 +20,9 @@ async function processWithVLM(
 ): Promise<string> {
   const sourceWidth = videoElement.videoWidth || 640;
   const sourceHeight = videoElement.videoHeight || 480;
-  const scale = Math.min(1, VLM_IMAGE_MAX_EDGE / Math.max(sourceWidth, sourceHeight));
+  const scale = VLM_IMAGE_MAX_EDGE > 0
+    ? Math.min(1, VLM_IMAGE_MAX_EDGE / Math.max(sourceWidth, sourceHeight))
+    : 1;
   const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
   const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
   const startedAt = performance.now();

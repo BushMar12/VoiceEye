@@ -62,8 +62,8 @@ export const VLM_DISPLAY_LABEL = VLM_BACKEND === 'ollama'
 export const VLM_UNAVAILABLE_MESSAGE = VLM_BACKEND === 'ollama'
   ? 'Scene description unavailable. The local Qwen3-VL engine is not running.'
   : 'Scene description unavailable. The Cloudflare Workers AI backend is not responding.';
-export const VLM_IMAGE_QUALITY = 0.5;
-export const VLM_IMAGE_MAX_EDGE = 384;
+export const VLM_IMAGE_QUALITY = 0.85;
+export const VLM_IMAGE_MAX_EDGE = 0;        // 0 disables downscaling; preserve camera frame resolution
 export const VLM_MAX_TOKENS = 1024;
 export const VLM_MAX_WORDS = 40;
 

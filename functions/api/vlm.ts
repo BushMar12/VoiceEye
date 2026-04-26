@@ -169,8 +169,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const startedAt = Date.now();
   try {
     // Workers AI's Llama Vision binding takes `image` as an array of bytes.
-    // `Array.from(Uint8Array)` is fine here — the image is ≤40 KB at the
-    // frontend's 384-px / 0.5-quality JPEG encode.
+    // The frontend preserves camera-frame resolution for better OCR/search
+    // quality, so keep an eye on imageKB in the browser Slow Lane log.
     const result = (await env.AI.run(model, {
       prompt,
       image: Array.from(imageBytes),
