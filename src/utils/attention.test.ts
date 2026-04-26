@@ -45,9 +45,12 @@ function mockTrack(overrides: Partial<{ areaGrowthRate: number }> = {}) {
     id: 1,
     bbox: [0, 0, 10, 10] as [number, number, number, number],
     class: 'person',
+    classHistory: ['person'],
     score: 0.9,
-    age: 0,
-    vx: 0, vy: 0,
+    status: 'confirmed' as const,
+    hits: 2,
+    ageMs: 0,
+    vx: 0, vy: 0, vw: 0, vh: 0,
     areaGrowthRate: 0,
     lastCentroid: [5, 5] as [number, number],
     lastArea: 100,
@@ -196,10 +199,20 @@ function d(cls: string, x: number, y: number, w: number, h: number, score = 0.9)
   return { bbox: [x, y, w, h], class: cls, score };
 }
 
+/**
+ * Build a set of confirmed tracks by running two updateTracks frames with the
+ * same detections. Needed because tracks start as 'tentative' (hits=1) and
+ * the attention pipeline only processes 'confirmed' tracks (hits≥2).
+ */
+function confirmedTracks(dets: Detection[]): ReturnType<typeof updateTracks> {
+  const t1 = updateTracks([], dets);
+  return updateTracks(t1, dets);
+}
+
 describe('runAttention — first frame', () => {
   it('announces a new track as "new"', () => {
     const state = createAttentionState(0);
-    const tracks = updateTracks([], [d('car', 100, 100, 200, 200)]);
+    const tracks = confirmedTracks([d('car', 100, 100, 200, 200)]);
     const out = runAttention(tracks, 0, state, cfg());
 
     expect(out.toAnnounce).toHaveLength(1);
@@ -210,7 +223,7 @@ describe('runAttention — first frame', () => {
 
   it('caps output at budgetK = 3 in normal mode', () => {
     const state = createAttentionState(0);
-    const tracks = updateTracks([], [
+    const tracks = confirmedTracks([
       d('car',        0, 100, 40, 80),
       d('truck',    300, 100, 40, 80),
       d('bus',      600, 100, 40, 80),
@@ -224,7 +237,7 @@ describe('runAttention — first frame', () => {
 
   it('caps output at budgetK = 1 in quiet mode', () => {
     const state = createAttentionState(0);
-    const tracks = updateTracks([], [
+    const tracks = confirmedTracks([
       d('car', 100, 100, 40, 80),
       d('person', 200, 100, 40, 80),
     ]);
@@ -240,7 +253,7 @@ describe('runAttention — hazard override', () => {
 
     // Frame 1: a person in safe, a car also in safe — quiet mode picks only one
     // Car is sized to allow IoU match with frame-2 big car: 200000 / 921600 = 21.7% → safe
-    let tracks = updateTracks([], [
+    let tracks = confirmedTracks([
       d('person', 100, 100, 40, 80),
       d('car', 200, 200, 500, 400),
     ]);
@@ -262,8 +275,8 @@ describe('runAttention — hazard override', () => {
 
   it('tier-1 near→danger (gradual) does NOT bypass the budget', () => {
     const state = createAttentionState(0);
-    // Frame 1: car in near zone
-    let tracks = updateTracks([], [d('car', 100, 100, 500, 450)]); // area ~0.24 → near
+    // Frame 1: car in safe zone (500×450/921600 ≈ 24.4%, just below near threshold)
+    let tracks = confirmedTracks([d('car', 100, 100, 500, 450)]);
     let out = runAttention(tracks, 0, state, cfg({ verbosity: 'quiet' }));
     expect(out.toAnnounce).toHaveLength(1); // car announced (new)
 
@@ -284,7 +297,7 @@ describe('runAttention — de-escalation tones', () => {
     const state = createAttentionState(0);
 
     // Frame 1: huge car → danger (1000*500/921600 = 54.3%)
-    let tracks = updateTracks([], [d('car', 0, 0, 1000, 500)]);
+    let tracks = confirmedTracks([d('car', 0, 0, 1000, 500)]);
     runAttention(tracks, 0, state, cfg());
 
     // Frame 2: shrink → near (still same track via IoU = 0.54). 600*450/921600 = 29.3%
@@ -320,7 +333,7 @@ describe('runAttention — clustering', () => {
 
   it('collapses 3 near people into a single group announcement', () => {
     const state = createAttentionState(0);
-    const tracks = updateTracks([], [
+    const tracks = confirmedTracks([
       d('person', 300, 30, 400, 650),
       d('person', 340, 30, 400, 650),
       d('person', 380, 30, 400, 650),
@@ -359,7 +372,7 @@ describe('runAttention — speech eligibility gate', () => {
 
   it('announces a near chair on first detection', () => {
     const state = createAttentionState(0);
-    const tracks = updateTracks([], [d('chair', 100, 100, 520, 500)]); // 28.2% → near
+    const tracks = confirmedTracks([d('chair', 100, 100, 520, 500)]); // 28.2% → near
     const out = runAttention(tracks, 0, state, cfg());
     expect(out.toAnnounce).toHaveLength(1);
     expect(out.toAnnounce[0].class).toBe('chair');
@@ -449,9 +462,11 @@ describe('runAttention — synthetic stress scenes', () => {
     // on the earlier safe person.
     expect(out.toAnnounce.some(a => a.class === 'person' && a.zone === 'danger')).toBe(true);
 
-    // Now same scenario with a car (tier-1) — override fires
+    // Now same scenario with a car (tier-1) — override fires.
+    // confirmedTracks seeds a confirmed car in safe zone so the first runAttention
+    // sets a cooldown, enabling zone-escalation detection in the next frame.
     const state2 = createAttentionState(0);
-    let t2 = updateTracks([], [d('car', 200, 200, 440, 440)]);
+    let t2 = confirmedTracks([d('car', 200, 200, 440, 440)]);
     runAttention(t2, 0, state2, cfg({ verbosity: 'quiet' }));
     t2 = updateTracks(t2, [d('car', 100, 100, 1000, 500)]);
     const carOut = runAttention(t2, 200, state2, cfg({ verbosity: 'quiet' }));

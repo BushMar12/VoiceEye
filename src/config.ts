@@ -5,9 +5,13 @@
 export const INFERENCE_INTERVAL_MS = 100;   // ~10 fps target
 
 // ── Tracker ────────────────────────────────────────────────────────────
-export const TRACKER_MAX_AGE = 10;          // frames without match before track is dropped
-export const TRACKER_MIN_IOU = 0.3;         // minimum IoU for detection-to-track matching
-export const TRACKER_EMA_ALPHA = 0.3;       // smoothing factor for velocity estimation
+export const TRACKER_MAX_AGE_MS = 1000;           // ms without a match before a track is dropped (fps-invariant)
+export const TRACKER_EMA_ALPHA = 0.3;             // smoothing factor for velocity estimation (px/ms)
+export const TRACKER_HIGH_CONF_THRESHOLD = 0.5;   // score cutoff splitting stage-A / stage-B detection sets
+export const TRACKER_COST_THRESHOLD_HIGH = 0.7;   // max assignment cost accepted in stage A (high-conf dets)
+export const TRACKER_COST_THRESHOLD_LOW  = 0.5;   // stricter threshold used in stage B (low-conf recovery)
+export const TRACKER_CLASS_HISTORY_LEN = 5;       // sliding window length for class-mode voting
+export const TRACKER_CONFIRM_HITS = 2;            // consecutive hits needed to promote tentative → confirmed
 
 // ── Proximity Zones ────────────────────────────────────────────────────
 export const PROXIMITY_DANGER_THRESHOLD = 0.5;   // screen area fraction

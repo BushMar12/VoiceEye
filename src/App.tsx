@@ -131,7 +131,7 @@ const App: React.FC = () => {
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
           {!vlm.isProcessing && videoElement &&
             renderedTracks
-              .filter(t => t.age === 0 && t.score > BBOX_MIN_SCORE)
+              .filter(t => t.ageMs === 0 && t.status === 'confirmed' && t.score > BBOX_MIN_SCORE)
               .map(track => {
                 const left   = (track.bbox[0] / videoElement.videoWidth)  * 100;
                 const top    = (track.bbox[1] / videoElement.videoHeight) * 100;

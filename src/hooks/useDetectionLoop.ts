@@ -76,6 +76,9 @@ export function useDetectionLoop({
         const now = performance.now();
 
         if (!isDetecting && now - lastInferenceTime >= INFERENCE_INTERVAL_MS) {
+          // Real elapsed time since the last inference — used by the tracker for
+          // velocity-based bbox prediction and fps-invariant track aging.
+          const dtMs = lastInferenceTime > 0 ? now - lastInferenceTime : INFERENCE_INTERVAL_MS;
           isDetecting = true;
           lastInferenceTime = now;
 
@@ -88,7 +91,7 @@ export function useDetectionLoop({
             const vh = videoElement.videoHeight;
             const screenArea = vw * vh;
 
-            tracksRef.current = updateTracks(tracksRef.current, detections, screenArea);
+            tracksRef.current = updateTracks(tracksRef.current, detections, screenArea, dtMs);
 
             const out = runAttention(tracksRef.current, now, attentionStateRef.current, {
               verbosity: settingsRef.current.verbosity,

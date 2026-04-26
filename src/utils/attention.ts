@@ -208,7 +208,9 @@ export function runAttention(
   const budgetK = VERBOSITY_K[config.verbosity];
   const deescalationTones: number[] = [];
 
-  const activeTracks = tracks.filter(t => t.age === 0);
+  // Only confirmed tracks matched this frame are eligible for announcement or rendering.
+  // Tentative tracks (first-hit false positives) are invisible to the attention pipeline.
+  const activeTracks = tracks.filter(t => t.ageMs === 0 && t.status === 'confirmed');
   const clusters = clusterTracks(activeTracks, frameDiagonal);
   const clusteredIds = new Set<number>();
   clusters.forEach(c => c.members.forEach(m => clusteredIds.add(m.id)));
