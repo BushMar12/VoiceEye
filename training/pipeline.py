@@ -283,7 +283,18 @@ def main():
     print(f"  GPU queue: {gpu_queue or '(local)'}")
     print(f"  CPU queue: {cpu_queue or '(local)'}")
 
-    pipe.start()
+    if args.remote:
+        # Enqueue the controller itself onto a long-lived services queue so
+        # it survives the lifetime of the submitter (e.g. a GitHub Actions
+        # runner that exits within minutes). The services agent then runs
+        # the controller, which dispatches sub-tasks onto gpu/cpu queues.
+        services_queue = cfg.get("queue_services", "services")
+        print(f"  Controller queue: {services_queue}")
+        pipe.start(queue=services_queue)
+        print(f"Controller enqueued on '{services_queue}'.")
+    else:
+        # Local mode: run controller synchronously in this process.
+        pipe.start_locally()
     print("Pipeline started. Monitor progress in the ClearML Web UI.")
 
 
