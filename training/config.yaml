@@ -58,6 +58,7 @@ export_simplify: true
 conf_threshold: 0.25
 iou_threshold: 0.45
 min_map50: 0.40
+production_tag: "production"         # tag applied to export task when quality gate passes
 
 # HPO
 hpo_max_trials: 20

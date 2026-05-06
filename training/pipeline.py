@@ -144,8 +144,12 @@ def evaluate_step(model_path: str, dataset_path: str,
 def export_step(model_path: str, export_format: str,
                 export_imgsz: int, half: bool,
                 export_simplify: bool, export_opset: int,
-                dataset_id: str, eval_results: dict) -> str:
-    """Export to ONNX and register in ClearML."""
+                dataset_id: str, eval_results: dict,
+                production_tag: str) -> str:
+    """Export to ONNX, register in ClearML, and tag the task `production`
+    so the model-promote workflow can pick it up. Reaching this step
+    implies the quality gate already passed (evaluate_step raises if
+    mAP@50 is below threshold)."""
     import hashlib
     from pathlib import Path
 
@@ -175,7 +179,7 @@ def export_step(model_path: str, export_format: str,
     print(f"Size:     {size_mb:.2f} MB")
     print(f"SHA-256:  {checksum}")
 
-    # Upload artifact
+    # Upload artifact + tag for promotion
     task = Task.current_task()
     if task:
         task.upload_artifact(
@@ -188,7 +192,8 @@ def export_step(model_path: str, export_format: str,
                 "sha256": checksum,
             },
         )
-        print("ONNX model uploaded to ClearML artifacts.")
+        task.add_tags([production_tag])
+        print(f"ONNX uploaded; task tagged `{production_tag}`.")
 
     return str(onnx_path)
 
@@ -272,6 +277,7 @@ def main():
             "export_opset": cfg.get("export_opset", 17),
             "dataset_id": cfg["dataset_id"],
             "eval_results": "${evaluate.eval_results}",
+            "production_tag": cfg.get("production_tag", "production"),
         },
         function_return=["onnx_path"],
         execution_queue=cpu_queue,

@@ -1,0 +1,42 @@
+name: Promote Model (cron)
+
+on:
+  schedule:
+    - cron: "30 * * * *"     # hourly at :30
+  workflow_dispatch:
+
+jobs:
+  scan-and-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ClearML SDK
+        run: pip install "clearml>=1.16.0"
+
+      - name: Detect promotable task
+        id: detect
+        env:
+          CLEARML_API_HOST:        ${{ secrets.CLEARML_API_HOST }}
+          CLEARML_API_ACCESS_KEY:  ${{ secrets.CLEARML_API_ACCESS_KEY }}
+          CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
+          CLEARML_FILES_HOST:      ${{ secrets.CLEARML_FILES_HOST }}
+          CLEARML_WEB_HOST:        ${{ secrets.CLEARML_WEB_HOST }}
+        run: python training/promote_check.py
+
+      - name: Trigger model-download
+        if: steps.detect.outputs.task_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run model-download.yml \
+            -f task_id=${{ steps.detect.outputs.task_id }} \
+            -f artifact_name=fastlane_onnx_model
