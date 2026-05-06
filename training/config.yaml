@@ -69,3 +69,4 @@ hpo_trial_patience: 15
 # ClearML Agent queues
 queue_gpu: "gpu"
 queue_cpu: "cpu"
+queue_services: "services"           # long-lived queue for pipeline controllers
