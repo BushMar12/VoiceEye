@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import hashlib
+import os
 import sys
 from pathlib import Path
 
@@ -210,8 +211,11 @@ def main():
     gpu_queue = cfg.get("queue_gpu", "gpu") if args.remote else None
     cpu_queue = cfg.get("queue_cpu", "cpu") if args.remote else None
 
+    git_sha = os.environ.get("GIT_SHA", "local")[:8]
+    reason = os.environ.get("REASON", "manual")[:40]
+
     pipe = PipelineController(
-        name="VoiceEye FastLane Pipeline",
+        name=f"VoiceEye FastLane Pipeline (sha={git_sha} reason={reason})",
         project=cfg["clearml_project"],
         version="1.0",
         add_pipeline_tags=True,

@@ -1,0 +1,43 @@
+name: Continuous Training (on merge)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "training/config.yaml"
+      - "training/train.py"
+      - "training/pipeline.py"
+      - "training/hpo.py"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why this manual run? (logged on the ClearML task)"
+        required: false
+        default: "manual"
+
+jobs:
+  enqueue-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install enqueue-only deps
+        run: pip install "clearml>=1.16.0" pyyaml
+
+      - name: Enqueue pipeline to clearml-agent
+        env:
+          CLEARML_API_HOST:        ${{ secrets.CLEARML_API_HOST }}
+          CLEARML_API_ACCESS_KEY:  ${{ secrets.CLEARML_API_ACCESS_KEY }}
+          CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
+          CLEARML_FILES_HOST:      ${{ secrets.CLEARML_FILES_HOST }}
+          CLEARML_WEB_HOST:        ${{ secrets.CLEARML_WEB_HOST }}
+          GIT_SHA:                 ${{ github.sha }}
+          REASON:                  ${{ github.event.inputs.reason || github.event.head_commit.message }}
+        run: python training/pipeline.py --remote
