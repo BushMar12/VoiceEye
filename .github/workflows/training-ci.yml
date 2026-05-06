@@ -1,0 +1,39 @@
+name: Training CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "training/**"
+      - "!training/data_prep/licenses/**"
+
+jobs:
+  validate-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: training/requirements.txt
+
+      - name: Install training deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r training/requirements.txt
+
+      - name: Validate config
+        run: python training/validate_config.py
+
+      - name: Run unit tests (no ClearML server)
+        env:
+          CLEARML_OFFLINE_MODE: "1"
+        run: pytest training/data_prep/tests training/tests -v --tb=short
+
+      - name: Smoke train (1 epoch, CPU)
+        env:
+          YOLO_OFFLINE: "1"
+        run: pytest training/tests/test_smoke_train.py -v -m smoke
