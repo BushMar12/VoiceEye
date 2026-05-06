@@ -1,0 +1,5 @@
+# One-time deps for fetching/processing source datasets.
+# Install only when running scripts under training/data_prep/.
+# `openimages 0.0.1` is the only published version; the pin >=0.2.0
+# referenced an unreleased package and broke pip install.
+openimages
