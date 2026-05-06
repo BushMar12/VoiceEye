@@ -1,62 +1,71 @@
-# ═══════════════════════════════════════════════════════════════════════
-# VoiceEye FastLane — Training Configuration
-# All values are the single source of truth for train.py, pipeline.py,
-# and hpo.py. ClearML connects this dict so values are editable from
-# the Web UI and overridable by HPO.
-# ═══════════════════════════════════════════════════════════════════════
+# VoiceEye FastLane training configuration.
+# Single source of truth for train.py, pipeline.py, and hpo.py.
 
-# ── ClearML ─────────────────────────────────────────────────────────
+# ClearML
 clearml_project: "VoiceEye"
 clearml_task_name: "YOLO26n Training"
-dataset_id: "06f6243c352e4a1ea43e3475ae7365eb"
+dataset_id: "eb9fd0e9607242029dbf8fe729b88b4f"
 
-# ── Model ───────────────────────────────────────────────────────────
-model_weights: "yolo26n.pt"          # YOLO26n pretrained on COCO
+# Model
+model_weights: "yolo26n.pt"
 
-# ── Training — convergence-tuned for nano model ────────────────────
-epochs: 150                          # Nano models need 100-200 for full convergence
-patience: 30                         # Early stop if val mAP stalls for 30 epochs
-batch: 16                            # Fits ~6 GB VRAM; HPO may try 8 or 32
-imgsz: 640                           # Must match ONNX Runtime Web input size
-optimizer: "AdamW"                   # Better convergence than SGD for nano models
-lr0: 0.001                           # Initial learning rate
-lrf: 0.01                            # Final LR = lr0 * lrf = 0.00001
-cos_lr: true                         # Cosine annealing (built into Ultralytics)
-warmup_epochs: 5                     # Linear warmup prevents early divergence
+# Hardware
+device: "0"
+workers: 8
+amp: false
+cache: false
+
+# Training
+epochs: 150
+patience: 50
+batch: 16
+imgsz: 640
+optimizer: "AdamW"
+lr0: 0.001
+lrf: 0.01
+cos_lr: true
+warmup_epochs: 5
 warmup_momentum: 0.8
-weight_decay: 0.0005                 # L2 regularisation
-dropout: 0.0                         # Standard for detection
+weight_decay: 0.0005
+dropout: 0.0
+close_mosaic: 10
 
-# ── Augmentation ────────────────────────────────────────────────────
-hsv_h: 0.015                         # Hue shift
-hsv_s: 0.7                           # Saturation
-hsv_v: 0.4                           # Brightness
-degrees: 0.0                         # Rotation (off — not useful for street scenes)
-translate: 0.1                       # Translation
-scale: 0.5                           # Scale augmentation
-fliplr: 0.5                          # Horizontal flip
-mosaic: 1.0                          # Mosaic (Ultralytics disables last 10 epochs)
-mixup: 0.0                           # Mixup (usually not helpful for nano)
+# Augmentation
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+degrees: 0.0
+translate: 0.1
+scale: 0.5
+fliplr: 0.5
+mosaic: 1.0
+mixup: 0.0
+copy_paste: 0.0
+erasing: 0.0
 
-# ── Export ──────────────────────────────────────────────────────────
-export_format: "onnx"                # ONNX for ONNX Runtime Web (NOT tfjs)
+# Dataset sanity gates
+min_train_images: 1000
+min_val_images: 100
+
+# Export
+export_format: "onnx"
 export_imgsz: 640
-half: false                          # WASM backend requires float32
-export_opset: 17                     # Max opset with full WASM operator coverage
-export_simplify: true                # ONNX simplifier for smaller file
+half: false
+export_opset: 17
+export_simplify: true
 
-# ── Validation ──────────────────────────────────────────────────────
-conf_threshold: 0.5
+# Validation thresholds
+conf_threshold: 0.25
 iou_threshold: 0.45
-min_map50: 0.40                      # Quality gate — reject if mAP@50 below this
+min_map50: 0.40
 
-# ── HPO ─────────────────────────────────────────────────────────────
-hpo_max_trials: 20                   # Total Optuna trials
-hpo_time_limit_minutes: 480          # 8-hour wall clock limit
-hpo_concurrent_tasks: 2              # Parallel trials (depends on GPU count)
-hpo_trial_epochs: 50                 # Reduced epochs per HPO trial
-hpo_trial_patience: 15               # Reduced patience per HPO trial
+# HPO
+hpo_max_trials: 20
+hpo_time_limit_minutes: 480
+hpo_concurrent_tasks: 2
+hpo_trial_epochs: 50
+hpo_trial_patience: 15
 
-# ── Agent Queues ────────────────────────────────────────────────────
-queue_gpu: "gpu"                     # Training + HPO trials
-queue_cpu: "cpu"                     # Data prep, evaluation, export
+# ClearML Agent queues
+queue_gpu: "gpu"
+queue_cpu: "cpu"

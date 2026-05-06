@@ -25,7 +25,7 @@ from ultralytics import YOLO
 
 def load_config(config_path: str = "training/config.yaml") -> dict:
     """Load config YAML and return a flat dict."""
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -69,6 +69,9 @@ def main():
                         help="Override training epochs")
     parser.add_argument("--batch", type=int, default=None,
                         help="Override batch size")
+    parser.add_argument("--data", default=None,
+                        help="Path to a local data.yaml (bypasses ClearML "
+                             "Dataset.get; useful for smoke runs)")
     cli = parser.parse_args()
 
     # Load config with CLI overrides
@@ -83,6 +86,7 @@ def main():
     task = Task.init(
         project_name=cfg["clearml_project"],
         task_name=cfg["clearml_task_name"],
+        reuse_last_task_id=False,
     )
     # Register ALL config keys as hyperparameters.
     # HPO clones this task and overrides values here before training.
@@ -93,48 +97,82 @@ def main():
     cfg = coerce_types(cfg, reference_cfg)
 
     # ── Dataset ──────────────────────────────────────────────────────
-    print(f"Fetching dataset {cfg['dataset_id']} from ClearML...")
-    dataset = Dataset.get(dataset_id=cfg["dataset_id"])
-    dataset_path = dataset.get_local_copy()
-    print(f"Dataset ready at: {dataset_path}")
+    if cli.data:
+        data_yaml = Path(cli.data).resolve()
+        print(f"Using local data.yaml: {data_yaml} (ClearML dataset fetch skipped)")
+        if not data_yaml.exists():
+            print(f"ERROR: {data_yaml} not found.")
+            task.close()
+            sys.exit(1)
+        # Record the bypass on the ClearML task for reproducibility
+        task.get_logger().report_text(
+            f"Trained against local data.yaml (no Dataset.get): {data_yaml}"
+        )
+    else:
+        print(f"Fetching dataset {cfg['dataset_id']} from ClearML...")
+        dataset = Dataset.get(dataset_id=cfg["dataset_id"])
+        dataset_path = dataset.get_local_copy()
+        print(f"Dataset ready at: {dataset_path}")
+        data_yaml = Path(dataset_path) / "data.yaml"
+        if not data_yaml.exists():
+            print(f"ERROR: {data_yaml} not found in dataset.")
+            task.close()
+            sys.exit(1)
 
-    data_yaml = Path(dataset_path) / "data.yaml"
-    if not data_yaml.exists():
-        print(f"ERROR: {data_yaml} not found in dataset.")
+    # ── Sanity check ─────────────────────────────────────────────────
+    # The previous training run finished in 13 min for "300 epochs" with
+    # 0% GPU usage — Ultralytics had silently fallen back to an empty
+    # image set due to a wrong `path:` field in data.yaml. Fail loudly
+    # here instead of producing meaningless metrics.
+    from ultralytics.data.utils import check_det_dataset
+
+    data_info = check_det_dataset(str(data_yaml))
+    train_dir = Path(data_info["train"])
+    val_dir = Path(data_info["val"])
+    img_globs = ("*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp")
+    train_count = sum(len(list(train_dir.rglob(g))) for g in img_globs) \
+        if train_dir.exists() else 0
+    val_count = sum(len(list(val_dir.rglob(g))) for g in img_globs) \
+        if val_dir.exists() else 0
+    nc = data_info.get("nc", len(data_info.get("names", [])))
+    print(f"[sanity] train_dir: {train_dir}")
+    print(f"[sanity] val_dir:   {val_dir}")
+    print(f"[sanity] images:    train={train_count}  val={val_count}  nc={nc}")
+
+    min_train = int(cfg.get("min_train_images", 1000))
+    min_val = int(cfg.get("min_val_images", 100))
+    if train_count < min_train or val_count < min_val:
+        msg = (f"ABORT: dataset looks empty or unreachable "
+               f"(train={train_count} < {min_train} or "
+               f"val={val_count} < {min_val}). "
+               f"Check `path:` in data.yaml.")
+        print(msg)
+        task.get_logger().report_text(msg)
         task.close()
-        sys.exit(1)
+        sys.exit(2)
 
     # ── Train ────────────────────────────────────────────────────────
     print(f"\nTraining {cfg['model_weights']} for {cfg['epochs']} epochs "
           f"(patience={cfg['patience']}, optimizer={cfg['optimizer']})...")
 
+    # Forward only the keys Ultralytics' model.train() accepts.
+    train_keys = (
+        "epochs", "patience", "batch", "imgsz", "device", "workers",
+        "amp", "cache", "optimizer", "lr0", "lrf", "cos_lr",
+        "warmup_epochs", "warmup_momentum", "weight_decay", "dropout",
+        "close_mosaic",
+        "hsv_h", "hsv_s", "hsv_v", "degrees", "translate", "scale",
+        "fliplr", "mosaic", "mixup", "copy_paste", "erasing",
+    )
+    train_kwargs = {k: cfg[k] for k in train_keys if k in cfg}
+
     model = YOLO(cfg["model_weights"])
     results = model.train(
         data=str(data_yaml),
-        epochs=cfg["epochs"],
-        patience=cfg["patience"],
-        batch=cfg["batch"],
-        imgsz=cfg["imgsz"],
-        optimizer=cfg["optimizer"],
-        lr0=cfg["lr0"],
-        lrf=cfg["lrf"],
-        cos_lr=cfg["cos_lr"],
-        warmup_epochs=cfg["warmup_epochs"],
-        warmup_momentum=cfg["warmup_momentum"],
-        weight_decay=cfg["weight_decay"],
-        dropout=cfg["dropout"],
-        hsv_h=cfg["hsv_h"],
-        hsv_s=cfg["hsv_s"],
-        hsv_v=cfg["hsv_v"],
-        degrees=cfg["degrees"],
-        translate=cfg["translate"],
-        scale=cfg["scale"],
-        fliplr=cfg["fliplr"],
-        mosaic=cfg["mosaic"],
-        mixup=cfg["mixup"],
         project="VoiceEye_Runs",
         name="fastlane_train",
         exist_ok=True,
+        **train_kwargs,
     )
     # Ultralytics auto-logs loss curves, mAP, sample images to the
     # active ClearML task — no explicit callback code needed.
