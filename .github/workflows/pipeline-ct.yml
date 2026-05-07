@@ -1,5 +1,12 @@
 name: Continuous Training (on merge)
 
+# At most one pipeline-ct run at a time. A push-triggered run that arrives
+# while a manual `hpo+train` is already enqueued will queue behind it
+# (rather than fight for the same agent slots, as happened in run #5).
+concurrency:
+  group: pipeline-ct
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]

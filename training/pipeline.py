@@ -365,6 +365,11 @@ def main():
             function_return=["hpo_params"],
             execution_queue=cpu_queue,
             parents=["data_prep"],
+            # ClearML's auto-import detection treats `from clearml.automation.optuna
+            # import OptimizerOptuna` as a clearml-only import, so optuna itself
+            # never made it into the step's auto-built venv (build failed mid-run
+            # with `ModuleNotFoundError: optuna`). Pin it explicitly here.
+            packages=["optuna>=3.5.0"],
         )
 
     # Steps 3-5 (only when mode includes the full train chain).
