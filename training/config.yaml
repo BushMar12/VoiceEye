@@ -16,7 +16,7 @@ amp: false
 cache: false
 
 # Training
-epochs: 150
+epochs: 50
 patience: 50
 batch: 16
 imgsz: 640
@@ -60,12 +60,22 @@ iou_threshold: 0.45
 min_map50: 0.40
 production_tag: "production"         # tag applied to export task when quality gate passes
 
+# Pipeline mode — gates which steps run when pipeline.py launches.
+#   train      : data_prep -> train -> evaluate -> export   (cheap, default)
+#   hpo+train  : data_prep -> hpo   -> train -> evaluate -> export
+#   hpo-only   : data_prep -> hpo                            (search only, no commit)
+pipeline_mode: "train"
+
 # HPO
-hpo_max_trials: 20
+hpo_max_trials: 4
 hpo_time_limit_minutes: 480
 hpo_concurrent_tasks: 2
-hpo_trial_epochs: 50
-hpo_trial_patience: 15
+hpo_trial_epochs: 3
+hpo_trial_patience: 3
+# Required when pipeline_mode includes "hpo". Create with:
+#   python training/train.py --epochs 5 --data data/final/data.yaml
+# then paste the resulting ClearML task ID here.
+hpo_template_task_id: "9b58b53607e2480abe735935fd81e99a"
 
 # ClearML Agent queues
 queue_gpu: "gpu"

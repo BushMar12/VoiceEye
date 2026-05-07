@@ -53,11 +53,117 @@ def data_prep_step(dataset_id: str) -> str:
     return dataset_path
 
 
-def train_step(dataset_path: str, config: dict) -> tuple:
-    """Run YOLO training, return best weights path and mAP@50."""
+def hpo_step(dataset_path: str, config: dict) -> dict:
+    """Run a short HPO sweep against the registered template task; return
+    the winning hyperparameter dict to be merged on top of `config` in
+    the train step. Trial-only knobs (epochs/patience) are excluded so
+    the full train uses production-length values."""
+    from clearml.automation import (
+        DiscreteParameterRange,
+        HyperParameterOptimizer,
+        UniformIntegerParameterRange,
+        UniformParameterRange,
+    )
+    from clearml.automation.optuna import OptimizerOptuna
+
+    template_id = config.get("hpo_template_task_id", "")
+    if not template_id:
+        raise ValueError(
+            "hpo_template_task_id is empty in config.yaml. "
+            "Create a template with `python training/train.py --epochs 5 "
+            "--data data/final/data.yaml`, then paste its ClearML task ID "
+            "into config.yaml before running pipeline_mode=hpo+train."
+        )
+
+    hyper_parameters = [
+        UniformParameterRange("training_config/lr0",
+                              min_value=0.0001, max_value=0.01, step_size=0.0001),
+        UniformParameterRange("training_config/lrf",
+                              min_value=0.001, max_value=0.1, step_size=0.001),
+        DiscreteParameterRange("training_config/optimizer",
+                               values=["SGD", "AdamW", "Adam"]),
+        DiscreteParameterRange("training_config/batch",
+                               values=["8", "16", "32"]),
+        UniformParameterRange("training_config/weight_decay",
+                              min_value=0.0001, max_value=0.001, step_size=0.0001),
+        UniformIntegerParameterRange("training_config/warmup_epochs",
+                                     min_value=2, max_value=10, step_size=1),
+        UniformParameterRange("training_config/mosaic",
+                              min_value=0.0, max_value=1.0, step_size=0.1),
+        UniformParameterRange("training_config/scale",
+                              min_value=0.0, max_value=0.9, step_size=0.1),
+        UniformParameterRange("training_config/mixup",
+                              min_value=0.0, max_value=0.3, step_size=0.05),
+        DiscreteParameterRange("training_config/cos_lr",
+                               values=["True", "False"]),
+        DiscreteParameterRange("training_config/epochs",
+                               values=[str(config.get("hpo_trial_epochs", 50))]),
+        DiscreteParameterRange("training_config/patience",
+                               values=[str(config.get("hpo_trial_patience", 15))]),
+    ]
+
+    optimizer = HyperParameterOptimizer(
+        base_task_id=template_id,
+        hyper_parameters=hyper_parameters,
+        objective_metric_title="val",
+        objective_metric_series="mAP50",
+        objective_metric_sign="max",
+        optimizer_class=OptimizerOptuna,
+        max_number_of_concurrent_tasks=int(config.get("hpo_concurrent_tasks", 2)),
+        total_max_jobs=int(config.get("hpo_max_trials", 20)),
+        execution_queue=config.get("queue_gpu", "gpu"),
+    )
+    optimizer.set_report_period(2)
+    optimizer.start()
+    optimizer.wait()
+
+    top = optimizer.get_top_experiments(top_k=1)
+    if not top:
+        raise RuntimeError(
+            "HPO produced no completed trials. "
+            "Check the agent on the gpu queue + the template task is valid."
+        )
+    best_task = top[0]
+    raw = best_task.get_parameters() or {}
+
+    out: dict = {}
+    for key, value in raw.items():
+        if not key.startswith("training_config/"):
+            continue
+        param_name = key.split("/", 1)[1]
+        # Drop trial-only overrides so the full train uses config.yaml's
+        # production-length epochs/patience.
+        if param_name in ("epochs", "patience"):
+            continue
+        # Coerce to the type the original config used.
+        if param_name in config:
+            t = type(config[param_name])
+            try:
+                if t is bool:
+                    value = str(value).lower() in ("true", "1", "yes")
+                else:
+                    value = t(value)
+            except (ValueError, TypeError):
+                pass
+        out[param_name] = value
+
+    print(f"[hpo] Best trial: {best_task.id}  mAP@50 maximised")
+    print(f"[hpo] Winning params (overlay onto config): {out}")
+    return out
+
+
+def train_step(dataset_path: str, config: dict, hpo_params: dict | None = None) -> tuple:
+    """Run YOLO training, return best weights path and mAP@50.
+    If `hpo_params` is provided (from a preceding hpo_step), those values
+    override the matching keys in `config` for this run only."""
     from pathlib import Path
 
     from ultralytics import YOLO
+
+    if hpo_params:
+        config = {**config, **hpo_params}
+        print(f"[train] Applied HPO winners on top of config: "
+              f"{sorted(hpo_params.keys())}")
 
     data_yaml = str(Path(dataset_path) / "data.yaml")
     model = YOLO(config["model_weights"])
@@ -202,16 +308,26 @@ def export_step(model_path: str, export_format: str,
 # Pipeline Controller
 # ═══════════════════════════════════════════════════════════════════════
 
+VALID_MODES = ("train", "hpo+train", "hpo-only")
+
+
 def main():
     parser = argparse.ArgumentParser(description="VoiceEye training pipeline")
     parser.add_argument("--config", default="training/config.yaml",
                         help="Path to config YAML")
     parser.add_argument("--remote", action="store_true",
                         help="Run steps on remote clearml-agent queues")
+    parser.add_argument("--mode", default=None, choices=VALID_MODES,
+                        help="Override pipeline_mode from config")
     args = parser.parse_args()
 
-    with open(args.config) as f:
+    with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+
+    pipeline_mode = args.mode or cfg.get("pipeline_mode", "train")
+    if pipeline_mode not in VALID_MODES:
+        raise ValueError(f"Invalid pipeline_mode: {pipeline_mode!r} "
+                         f"(expected one of {VALID_MODES})")
 
     gpu_queue = cfg.get("queue_gpu", "gpu") if args.remote else None
     cpu_queue = cfg.get("queue_cpu", "cpu") if args.remote else None
@@ -220,13 +336,14 @@ def main():
     reason = os.environ.get("REASON", "manual")[:40]
 
     pipe = PipelineController(
-        name=f"VoiceEye FastLane Pipeline (sha={git_sha} reason={reason})",
+        name=f"VoiceEye FastLane Pipeline (mode={pipeline_mode} "
+             f"sha={git_sha} reason={reason})",
         project=cfg["clearml_project"],
         version="1.0",
         add_pipeline_tags=True,
     )
 
-    # Step 1: Data Preparation (CPU)
+    # Step 1: Always — Data Preparation (CPU)
     pipe.add_function_step(
         name="data_prep",
         function=data_prep_step,
@@ -235,57 +352,77 @@ def main():
         execution_queue=cpu_queue,
     )
 
-    # Step 2: Training (GPU)
-    pipe.add_function_step(
-        name="train",
-        function=train_step,
-        function_kwargs={
+    # Step 2 (optional): HPO. Controller runs on cpu queue; trials it
+    # spawns are dispatched to gpu queue by HyperParameterOptimizer.
+    if pipeline_mode in ("hpo+train", "hpo-only"):
+        pipe.add_function_step(
+            name="hpo",
+            function=hpo_step,
+            function_kwargs={
+                "dataset_path": "${data_prep.dataset_path}",
+                "config": cfg,
+            },
+            function_return=["hpo_params"],
+            execution_queue=cpu_queue,
+            parents=["data_prep"],
+        )
+
+    # Steps 3-5 (only when mode includes the full train chain).
+    if pipeline_mode in ("train", "hpo+train"):
+        train_kwargs = {
             "dataset_path": "${data_prep.dataset_path}",
             "config": cfg,
-        },
-        function_return=["model_path", "map50"],
-        execution_queue=gpu_queue,
-        parents=["data_prep"],
-    )
+        }
+        train_parents = ["data_prep"]
+        if pipeline_mode == "hpo+train":
+            train_kwargs["hpo_params"] = "${hpo.hpo_params}"
+            train_parents = ["hpo"]
 
-    # Step 3: Evaluate + Quality Gate (CPU)
-    pipe.add_function_step(
-        name="evaluate",
-        function=evaluate_step,
-        function_kwargs={
-            "model_path": "${train.model_path}",
-            "dataset_path": "${data_prep.dataset_path}",
-            "conf_threshold": cfg["conf_threshold"],
-            "iou_threshold": cfg["iou_threshold"],
-            "min_map50": cfg.get("min_map50", 0.40),
-        },
-        function_return=["eval_results"],
-        execution_queue=cpu_queue,
-        parents=["train"],
-    )
+        pipe.add_function_step(
+            name="train",
+            function=train_step,
+            function_kwargs=train_kwargs,
+            function_return=["model_path", "map50"],
+            execution_queue=gpu_queue,
+            parents=train_parents,
+        )
 
-    # Step 4: Export ONNX + Register (CPU)
-    pipe.add_function_step(
-        name="export",
-        function=export_step,
-        function_kwargs={
-            "model_path": "${train.model_path}",
-            "export_format": cfg["export_format"],
-            "export_imgsz": cfg["export_imgsz"],
-            "half": cfg["half"],
-            "export_simplify": cfg.get("export_simplify", True),
-            "export_opset": cfg.get("export_opset", 17),
-            "dataset_id": cfg["dataset_id"],
-            "eval_results": "${evaluate.eval_results}",
-            "production_tag": cfg.get("production_tag", "production"),
-        },
-        function_return=["onnx_path"],
-        execution_queue=cpu_queue,
-        parents=["evaluate"],
-    )
+        pipe.add_function_step(
+            name="evaluate",
+            function=evaluate_step,
+            function_kwargs={
+                "model_path": "${train.model_path}",
+                "dataset_path": "${data_prep.dataset_path}",
+                "conf_threshold": cfg["conf_threshold"],
+                "iou_threshold": cfg["iou_threshold"],
+                "min_map50": cfg.get("min_map50", 0.40),
+            },
+            function_return=["eval_results"],
+            execution_queue=cpu_queue,
+            parents=["train"],
+        )
 
-    mode = "REMOTE (clearml-agent)" if args.remote else "LOCAL"
-    print(f"\nLaunching pipeline in {mode} mode...")
+        pipe.add_function_step(
+            name="export",
+            function=export_step,
+            function_kwargs={
+                "model_path": "${train.model_path}",
+                "export_format": cfg["export_format"],
+                "export_imgsz": cfg["export_imgsz"],
+                "half": cfg["half"],
+                "export_simplify": cfg.get("export_simplify", True),
+                "export_opset": cfg.get("export_opset", 17),
+                "dataset_id": cfg["dataset_id"],
+                "eval_results": "${evaluate.eval_results}",
+                "production_tag": cfg.get("production_tag", "production"),
+            },
+            function_return=["onnx_path"],
+            execution_queue=cpu_queue,
+            parents=["evaluate"],
+        )
+
+    exec_mode = "REMOTE (clearml-agent)" if args.remote else "LOCAL"
+    print(f"\nLaunching pipeline ({pipeline_mode}) in {exec_mode} mode...")
     print(f"  GPU queue: {gpu_queue or '(local)'}")
     print(f"  CPU queue: {cpu_queue or '(local)'}")
 

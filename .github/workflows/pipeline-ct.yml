@@ -14,6 +14,15 @@ on:
         description: "Why this manual run? (logged on the ClearML task)"
         required: false
         default: "manual"
+      mode:
+        description: "Pipeline mode"
+        required: false
+        default: "train"
+        type: choice
+        options:
+          - train
+          - hpo+train
+          - hpo-only
 
 jobs:
   enqueue-pipeline:
@@ -40,4 +49,5 @@ jobs:
           CLEARML_WEB_HOST:        ${{ secrets.CLEARML_WEB_HOST }}
           GIT_SHA:                 ${{ github.sha }}
           REASON:                  ${{ github.event.inputs.reason || github.event.head_commit.message }}
-        run: python training/pipeline.py --remote
+          MODE:                    ${{ github.event.inputs.mode || 'train' }}
+        run: python training/pipeline.py --remote --mode "$MODE"
