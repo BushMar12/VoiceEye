@@ -165,35 +165,29 @@ def train_step(dataset_path: str, config: dict, hpo_params: dict | None = None) 
         print(f"[train] Applied HPO winners on top of config: "
               f"{sorted(hpo_params.keys())}")
 
+    # Forward only keys Ultralytics' model.train() accepts. Mirrors the
+    # allowlist in train.py so device/workers/amp/cache/etc. flow into
+    # the agent-built venv's training process. Without this, defaults
+    # apply -> Ultralytics fails to detect GPU on a CPU-only torch venv.
+    train_keys = (
+        "epochs", "patience", "batch", "imgsz", "device", "workers",
+        "amp", "cache", "optimizer", "lr0", "lrf", "cos_lr",
+        "warmup_epochs", "warmup_momentum", "weight_decay", "dropout",
+        "close_mosaic",
+        "hsv_h", "hsv_s", "hsv_v", "degrees", "translate", "scale",
+        "fliplr", "mosaic", "mixup", "copy_paste", "erasing",
+    )
+    train_kwargs = {k: config[k] for k in train_keys if k in config}
+
     data_yaml = str(Path(dataset_path) / "data.yaml")
     model = YOLO(config["model_weights"])
 
     results = model.train(
         data=data_yaml,
-        epochs=config["epochs"],
-        patience=config["patience"],
-        batch=config["batch"],
-        imgsz=config["imgsz"],
-        optimizer=config["optimizer"],
-        lr0=config["lr0"],
-        lrf=config["lrf"],
-        cos_lr=config["cos_lr"],
-        warmup_epochs=config["warmup_epochs"],
-        warmup_momentum=config["warmup_momentum"],
-        weight_decay=config["weight_decay"],
-        dropout=config["dropout"],
-        hsv_h=config["hsv_h"],
-        hsv_s=config["hsv_s"],
-        hsv_v=config["hsv_v"],
-        degrees=config["degrees"],
-        translate=config["translate"],
-        scale=config["scale"],
-        fliplr=config["fliplr"],
-        mosaic=config["mosaic"],
-        mixup=config["mixup"],
         project="VoiceEye_Runs",
         name="pipeline_train",
         exist_ok=True,
+        **train_kwargs,
     )
 
     best_pt = str(model.trainer.best)
@@ -205,7 +199,7 @@ def train_step(dataset_path: str, config: dict, hpo_params: dict | None = None) 
 
 def evaluate_step(model_path: str, dataset_path: str,
                   conf_threshold: float, iou_threshold: float,
-                  min_map50: float) -> dict:
+                  min_map50: float, device: str = "0") -> dict:
     """Validate model, check quality gate, return metrics."""
     import sys
     from pathlib import Path
@@ -216,7 +210,8 @@ def evaluate_step(model_path: str, dataset_path: str,
     data_yaml = str(Path(dataset_path) / "data.yaml")
     model = YOLO(model_path)
 
-    metrics = model.val(data=data_yaml, conf=conf_threshold, iou=iou_threshold)
+    metrics = model.val(data=data_yaml, conf=conf_threshold, iou=iou_threshold,
+                        device=device)
 
     eval_results = {
         "mAP50": float(metrics.box.map50),
@@ -401,6 +396,7 @@ def main():
                 "conf_threshold": cfg["conf_threshold"],
                 "iou_threshold": cfg["iou_threshold"],
                 "min_map50": cfg.get("min_map50", 0.40),
+                "device": str(cfg.get("device", "0")),
             },
             function_return=["eval_results"],
             execution_queue=cpu_queue,
