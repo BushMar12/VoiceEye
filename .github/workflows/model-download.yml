@@ -76,8 +76,10 @@ jobs:
           elif expected:
               print("Checksum verified OK")
 
-          # Copy to deployment path
-          dest = Path("public/models/yolo26n.onnx")
+          # Copy to deployment path. NB: the PWA loads `public/models/best.onnx`
+          # per src/config.ts: YOLO_MODEL_PATH; writing to a different filename
+          # would ship the model into the bundle but never execute it.
+          dest = Path("public/models/best.onnx")
           dest.parent.mkdir(parents=True, exist_ok=True)
           import shutil
           shutil.copy2(onnx_path, dest)
@@ -100,7 +102,7 @@ jobs:
         run: |
           BRANCH="model-update-$(date +%Y%m%d-%H%M%S)"
           git checkout -b "$BRANCH"
-          git add public/models/yolo26n.onnx
+          git add public/models/best.onnx
           git commit -m "Update YOLO26n ONNX model from ClearML task ${{ inputs.task_id }}"
 
           # Build PR body from metadata

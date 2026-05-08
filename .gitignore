@@ -33,7 +33,10 @@ data/
 *.safetensors
 *.weights
 *.onnx
-public/models/*.onnx
+# Track ONLY the deployed production model. The PWA loads it from
+# /models/best.onnx (src/config.ts: YOLO_MODEL_PATH); the auto-promote
+# workflow writes here too. Training scratch *.onnx files stay ignored.
+!public/models/best.onnx
 
 # OneDrive sync conflict files
 *-The's MacBook Pro*

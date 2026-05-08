@@ -1,3 +1,8 @@
+// Fast Refresh tolerates only component exports per file. This file also
+// exports types + loadSettings (used by App.tsx during initial render).
+// Splitting into a sibling settings.ts would force every consumer to
+// update imports; the trade-off isn't worth it for a leaf settings panel.
+/* eslint-disable react-refresh/only-export-components */
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 
