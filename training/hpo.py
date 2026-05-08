@@ -151,6 +151,13 @@ def main():
     ]
 
     # ── Optimiser ────────────────────────────────────────────────────
+    # max_iteration_per_job is the early-stopping threshold inside Optuna
+    # (one Ultralytics epoch = one ClearML scalar iteration). Required:
+    # OptimizerOptuna.__init__ raises TypeError when this is None in
+    # clearml >= 2.x. Aligning with hpo_trial_epochs lets each trial run
+    # its full epoch budget without the optimiser cutting it short.
+    trial_epochs = int(cfg.get("hpo_trial_epochs", 50))
+
     optimizer = HyperParameterOptimizer(
         base_task_id=args.template_task_id,
         hyper_parameters=hyper_parameters,
@@ -163,6 +170,7 @@ def main():
 
         # Optuna TPE sampler (Bayesian, sample-efficient)
         optimizer_class=OptimizerOptuna,
+        max_iteration_per_job=trial_epochs,
 
         # Execution
         max_number_of_concurrent_tasks=concurrent,
