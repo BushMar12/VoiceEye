@@ -87,6 +87,9 @@ pip install ultralytics
 yolo export model=yolo26n.pt format=onnx imgsz=640
 ```
 For a custom ClearML-trained model, export the best checkpoint the same way and drop it in `public/models/`.
+For dataset registration, use `python -m training.data_prep.register_dataset` —
+this records `data/final/` to ClearML by `file://` reference (zero file upload).
+The 35 GB of images stays on the agent host; ClearML stores only the manifest.
 
 ### ONNX Runtime WASM Files
 After `npm install`, a `postinstall` script automatically copies `*.wasm` files from
@@ -236,7 +239,11 @@ HPO search space: lr0, lrf, optimizer, batch, weight_decay, warmup_epochs, mosai
 |----------|---------|---------|
 | `frontend-ci.yml` | PR to main (src/, public/) | Lint + build |
 | `training-config-validate.yml` | PR to main (training/config.yaml) | Validate config correctness |
-| `model-download.yml` | Manual dispatch | Download ONNX from ClearML, open PR |
+| `training-ci.yml` | PR to main (training/**) | Validate config + 1-epoch CPU smoke train |
+| `pipeline-ct.yml` | Push to main (training/**) | Enqueue full pipeline on clearml-agent |
+| `ct-fortnightly.yml` | Cron `0 3 * * 1` (gated to even ISO weeks) | Fortnightly retrain regardless of code change |
+| `model-promote.yml` | Cron `30 * * * *` | Scan ClearML for new `production` task → trigger model-download |
+| `model-download.yml` | Manual or workflow_run | Download ONNX from ClearML, open PR |
 
 ### Inference Monitoring
 

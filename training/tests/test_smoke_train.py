@@ -24,6 +24,7 @@ def test_one_epoch_smoke_train(tmp_path: Path) -> None:
 
     model = YOLO("yolo26n.pt")  # auto-downloads ~5 MB on first run
     results = model.train(
+        data=str(FIXTURE),
         epochs=1,
         imgsz=64,
         batch=2,

@@ -1,0 +1,48 @@
+name: Continuous Training (fortnightly)
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"       # every Monday 03:00 UTC; gated to even ISO weeks
+  workflow_dispatch:           # manual dispatch always runs (skips the gate)
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Skip on odd ISO weeks (cron only)
+        if: github.event_name == 'schedule'
+        id: gate
+        run: |
+          WEEK=$(date -u +%V)
+          echo "ISO week: $WEEK"
+          if [ $((WEEK % 2)) -ne 0 ]; then
+            echo "Odd week — skipping fortnightly retrain."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop here on odd weeks
+        if: steps.gate.outputs.skip == 'true'
+        run: exit 0
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install enqueue-only deps
+        run: pip install "clearml>=1.16.0" pyyaml
+
+      - name: Enqueue pipeline (full retrain)
+        env:
+          CLEARML_API_HOST:        ${{ secrets.CLEARML_API_HOST }}
+          CLEARML_API_ACCESS_KEY:  ${{ secrets.CLEARML_API_ACCESS_KEY }}
+          CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
+          CLEARML_FILES_HOST:      ${{ secrets.CLEARML_FILES_HOST }}
+          CLEARML_WEB_HOST:        ${{ secrets.CLEARML_WEB_HOST }}
+          GIT_SHA:                 ${{ github.sha }}
+          REASON:                  "fortnightly-ct"
+        run: python training/pipeline.py --remote
