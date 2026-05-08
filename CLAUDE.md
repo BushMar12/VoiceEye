@@ -46,7 +46,7 @@ The two lanes run independently. Fast Lane feeds a continuous `requestAnimationF
 | `src/utils/distance.ts` | Monocular distance estimation via pinhole camera model |
 | `src/utils/inferenceMetrics.ts` | In-memory inference latency/FPS/confidence tracking (singleton) |
 | `vite.config.ts` | Ollama proxy (`/api/ollama` → port 11434), PWA config with icons |
-| `public/models/yolo26n.onnx` | YOLO26n ONNX model (must be placed here manually — not in git) |
+| `public/models/best.onnx` | Deployed YOLO26n ONNX (tracked in git via gitignore exception; auto-promote workflow writes here) |
 | `training/config.yaml` | All training hyperparameters — single source of truth |
 | `training/train.py` | ClearML-tracked training script with quality gate + ONNX export |
 | `training/pipeline.py` | 4-step ClearML pipeline (data_prep → train → evaluate → export) |
@@ -81,12 +81,16 @@ ollama run qwen3-vl:2b       # Pull + verify the Qwen model
 Vite proxies `/api/ollama/*` to `http://127.0.0.1:11434` — removing CORS headers automatically.
 
 ### YOLO ONNX Model
-Place the model at `public/models/yolo26n.onnx`. To export from Ultralytics:
+Place the model at `public/models/best.onnx` (the path matches `src/config.ts: YOLO_MODEL_PATH`). To export from Ultralytics:
 ```bash
 pip install ultralytics
 yolo export model=yolo26n.pt format=onnx imgsz=640
+mv yolo26n.onnx public/models/best.onnx
 ```
-For a custom ClearML-trained model, export the best checkpoint the same way and drop it in `public/models/`.
+For a custom ClearML-trained model, the auto-promote chain (`model-promote.yml` cron → `model-download.yml`) writes the new ONNX to this path automatically and opens a PR.
+For dataset registration, use `python -m training.data_prep.register_dataset` —
+this records `data/final/` to ClearML by `file://` reference (zero file upload).
+The 35 GB of images stays on the agent host; ClearML stores only the manifest.
 
 ### ONNX Runtime WASM Files
 After `npm install`, a `postinstall` script automatically copies `*.wasm` files from
@@ -236,7 +240,11 @@ HPO search space: lr0, lrf, optimizer, batch, weight_decay, warmup_epochs, mosai
 |----------|---------|---------|
 | `frontend-ci.yml` | PR to main (src/, public/) | Lint + build |
 | `training-config-validate.yml` | PR to main (training/config.yaml) | Validate config correctness |
-| `model-download.yml` | Manual dispatch | Download ONNX from ClearML, open PR |
+| `training-ci.yml` | PR to main (training/**) | Validate config + 1-epoch CPU smoke train |
+| `pipeline-ct.yml` | Push to main (training/**) | Enqueue full pipeline on clearml-agent |
+| `ct-fortnightly.yml` | Cron `0 3 * * 1` (gated to even ISO weeks) | Fortnightly retrain regardless of code change |
+| `model-promote.yml` | Cron `30 * * * *` | Scan ClearML for new `production` task → trigger model-download |
+| `model-download.yml` | Manual or workflow_run | Download ONNX from ClearML, open PR |
 
 ### Inference Monitoring
 
@@ -260,7 +268,7 @@ HPO search space: lr0, lrf, optimizer, batch, weight_decay, warmup_epochs, mosai
 ## Testing
 
 1. `npm install` — installs deps including `onnxruntime-web`; postinstall copies WASM files
-2. Place `yolo26n.onnx` in `public/models/`
+2. Confirm `public/models/best.onnx` is present (tracked in git; auto-promote chain refreshes it from ClearML)
 3. `npm run dev -- --host` — open the HTTPS URL on a physical phone (camera requires HTTPS)
 4. Grant camera + microphone permissions
 5. Verify bounding boxes appear with `{class} #{id} ~Xm` labels, color-coded by proximity
