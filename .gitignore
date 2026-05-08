@@ -38,6 +38,10 @@ data/
 # workflow writes here too. Training scratch *.onnx files stay ignored.
 !public/models/best.onnx
 
+# Ultralytics writes label caches next to fixture data when the smoke
+# test runs locally. They're per-machine artefacts, not source.
+*.cache
+
 # OneDrive sync conflict files
 *-The's MacBook Pro*
 *-DESKTOP-*

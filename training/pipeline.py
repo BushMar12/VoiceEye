@@ -102,6 +102,13 @@ def hpo_step(dataset_path: str, config: dict) -> dict:
                                values=[str(config.get("hpo_trial_patience", 15))]),
     ]
 
+    # max_iteration_per_job is the early-stopping threshold inside Optuna
+    # (one Ultralytics epoch = one ClearML iteration). Set equal to the
+    # trial's epoch budget so the optimiser doesn't kill trials early on
+    # its own — the trainer's own `patience` already governs early stop.
+    # Required: OptimizerOptuna raises TypeError when this is None.
+    trial_epochs = int(config.get("hpo_trial_epochs", 50))
+
     optimizer = HyperParameterOptimizer(
         base_task_id=template_id,
         hyper_parameters=hyper_parameters,
@@ -109,6 +116,7 @@ def hpo_step(dataset_path: str, config: dict) -> dict:
         objective_metric_series="mAP50",
         objective_metric_sign="max",
         optimizer_class=OptimizerOptuna,
+        max_iteration_per_job=trial_epochs,
         max_number_of_concurrent_tasks=int(config.get("hpo_concurrent_tasks", 2)),
         total_max_jobs=int(config.get("hpo_max_trials", 20)),
         execution_queue=config.get("queue_gpu", "gpu"),
