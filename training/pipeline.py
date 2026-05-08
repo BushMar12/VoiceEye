@@ -194,13 +194,28 @@ def train_step(dataset_path: str, config: dict, hpo_params: dict | None = None) 
     map50 = results.results_dict.get("metrics/mAP50(B)", 0.0)
     print(f"Training complete. Best weights: {best_pt}, mAP@50: {map50:.4f}")
 
-    return best_pt, float(map50)
+    # Pipeline steps run in isolated venv sandboxes, so a local file path
+    # returned here is unreachable from evaluate/export. Upload the
+    # checkpoint as a ClearML artifact and return THIS TASK'S ID; the
+    # downstream steps fetch the artifact via Task.get_task(...).
+    from clearml import Task
+    task = Task.current_task()
+    task.upload_artifact("best_weights", artifact_object=best_pt,
+                         wait_on_upload=True)
+    print(f"Uploaded `best_weights` artifact on task {task.id}")
+
+    return task.id, float(map50)
 
 
 def evaluate_step(model_path: str, dataset_path: str,
                   conf_threshold: float, iou_threshold: float,
                   min_map50: float, device: str = "0") -> dict:
-    """Validate model, check quality gate, return metrics."""
+    """Validate model, check quality gate, return metrics.
+
+    `model_path` here is the *train task ID* (not a filesystem path) — see
+    train_step for why. We fetch the `best_weights` artifact from that
+    task and load it locally before validating.
+    """
     import sys
     from pathlib import Path
 
@@ -208,7 +223,11 @@ def evaluate_step(model_path: str, dataset_path: str,
     from ultralytics import YOLO
 
     data_yaml = str(Path(dataset_path) / "data.yaml")
-    model = YOLO(model_path)
+
+    train_task = Task.get_task(task_id=model_path)
+    local_pt = train_task.artifacts["best_weights"].get_local_copy()
+    print(f"Fetched best_weights artifact from train task {model_path}: {local_pt}")
+    model = YOLO(local_pt)
 
     metrics = model.val(data=data_yaml, conf=conf_threshold, iou=iou_threshold,
                         device=device)
@@ -250,14 +269,21 @@ def export_step(model_path: str, export_format: str,
     """Export to ONNX, register in ClearML, and tag the task `production`
     so the model-promote workflow can pick it up. Reaching this step
     implies the quality gate already passed (evaluate_step raises if
-    mAP@50 is below threshold)."""
+    mAP@50 is below threshold).
+
+    `model_path` is the *train task ID* — see train_step. Fetch the
+    best_weights artifact from that task before exporting.
+    """
     import hashlib
     from pathlib import Path
 
     from clearml import Task
     from ultralytics import YOLO
 
-    model = YOLO(model_path)
+    train_task = Task.get_task(task_id=model_path)
+    local_pt = train_task.artifacts["best_weights"].get_local_copy()
+    print(f"Fetched best_weights artifact from train task {model_path}: {local_pt}")
+    model = YOLO(local_pt)
     onnx_path_str = model.export(
         format=export_format,
         imgsz=export_imgsz,
