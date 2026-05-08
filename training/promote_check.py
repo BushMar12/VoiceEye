@@ -1,9 +1,12 @@
 """Decide whether the latest production-tagged ClearML task contains a
-model newer than what's currently deployed at public/models/yolo26n.onnx.
+model newer than what's currently deployed at public/models/best.onnx.
 
 Outputs `task_id=<id>` to GITHUB_OUTPUT when a newer model exists, or
 `task_id=` (empty) when nothing to promote. Prints metadata fields used
 by the PR body for human review.
+
+The deployed-path filename `best.onnx` matches src/config.ts'
+YOLO_MODEL_PATH so the PWA actually loads what we promote.
 """
 from __future__ import annotations
 
@@ -16,7 +19,7 @@ from clearml import Task
 
 PROJECT = "VoiceEye"
 TAG = "production"
-DEPLOYED_ONNX = Path("public/models/yolo26n.onnx")
+DEPLOYED_ONNX = Path("public/models/best.onnx")
 
 
 def deployed_sha256() -> str:
