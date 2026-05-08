@@ -1,5 +1,36 @@
 import { useState, useEffect, useRef } from 'react';
 
+// ─── Minimal Web Speech API typings ───────────────────────────────────────────
+// lib.dom.d.ts ships incomplete types for SpeechRecognition (still flagged
+// as "experimental"). Declare the shape our code actually uses.
+
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionErrorEventLike {
+  error: string;
+}
+
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+interface WindowWithSpeech extends Window {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+}
+
 // ─── Wake-word detection ──────────────────────────────────────────────────────
 const WAKE_WORDS = [
   'voice eye',
@@ -104,7 +135,7 @@ export function useVoiceRecognition({
   const awakeUntilRef = useRef<number>(0);
 
   // Ref to the live recognition object so effects outside the setup effect can stop/start it
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   // When true, recognition.onend should NOT auto-restart — the caller intentionally paused it
   const intentionalStopRef = useRef(false);
 
@@ -133,8 +164,8 @@ export function useVoiceRecognition({
   useEffect(() => {
     if (!enabled) return;
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const w = window as WindowWithSpeech;
+    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       console.warn('[voice] SpeechRecognition not supported in this browser');
       return;
@@ -151,7 +182,7 @@ export function useVoiceRecognition({
       setIsListening(true);
     };
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
       console.warn('[voice] recognition error:', event.error);
     };
 
@@ -166,7 +197,7 @@ export function useVoiceRecognition({
       } catch { /* already running */ }
     };
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
       const transcript: string =
         event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
       const s = stateRef.current;

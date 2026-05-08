@@ -118,8 +118,8 @@ export function useDetectionLoop({
               speak(phrase, undefined, settingsRef.current.ttsRate);
             }
 
-            // De-escalation tones
-            for (const _ of out.deescalationTones) {
+            // De-escalation tones — one beep per de-escalating track
+            for (let i = 0; i < out.deescalationTones.length; i++) {
               playBeep(DEESCALATION_TONE_HZ, DEESCALATION_TONE_S);
             }
 
