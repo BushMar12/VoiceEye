@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-FIXTURE = Path(__file__).parent / "fixtures" / "tiny" / "data.yaml"
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "tiny"
 
 
 @pytest.mark.smoke
@@ -22,9 +22,25 @@ def test_one_epoch_smoke_train(tmp_path: Path) -> None:
 
     from ultralytics import YOLO
 
+    # Ultralytics resolves the `path:` field of data.yaml relative to its
+    # configured datasets dir (defaults to `<cwd>/datasets`), not relative
+    # to the yaml file. The committed fixture has `path: .` which works
+    # only when cwd happens to equal the fixture dir. Rewrite to an
+    # absolute path so the test works regardless of where pytest was
+    # invoked from (relevant for CI runners).
+    rewritten_yaml = tmp_path / "data.yaml"
+    rewritten_yaml.write_text(
+        f"path: {FIXTURE_DIR.resolve().as_posix()}\n"
+        "train: images/train\n"
+        "val: images/val\n"
+        "nc: 1\n"
+        "names:\n"
+        "  - obj\n"
+    )
+
     model = YOLO("yolo26n.pt")  # auto-downloads ~5 MB on first run
     results = model.train(
-        data=str(FIXTURE),
+        data=str(rewritten_yaml),
         epochs=1,
         imgsz=64,
         batch=2,
