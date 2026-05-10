@@ -1,6 +1,6 @@
 # VoiceEye: AI Vision Assistant
 
-VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives visually impaired users real-time spatial awareness through their phone camera. It uses a **Dual-Lane Processing Architecture** — combining instant object detection with deep scene understanding. All AI processing runs locally on-device — no data leaves your environment.
+VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives visually impaired users real-time spatial awareness through their phone camera. It uses a **Dual-Lane Processing Architecture** - combining instant object detection with deep scene understanding. Fast Lane detection runs in-browser with ONNX Runtime Web; Slow Lane scene understanding can run against local Ollama in development or Cloudflare Workers AI in production.
 
 ---
 
@@ -17,10 +17,10 @@ VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives vi
 - **Feedback**: Batched TTS per frame plus haptic vibration patterns; 440Hz de-escalation tone when an object exits the danger zone
 
 ### Slow Lane (Deep Context VLM)
-- **Engine**: Qwen3-VL via local Ollama API
+- **Engine**: Qwen3-VL via local Ollama API in development, or Cloudflare Workers AI via `/api/vlm` in production
 - **Function**: Scene description, text extraction (OCR), and targeted object search
 - **Trigger**: Tap the screen or use a voice command
-- **Timeout**: 15-second AbortController timeout with spoken error feedback
+- **Timeout**: 60-second AbortController timeout with spoken error feedback
 
 ---
 
@@ -42,9 +42,9 @@ VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives vi
 - **Error Boundary** — Crash recovery with TTS feedback ("VoiceEye encountered an error") and tap-to-reload
 - **VLM Error Handling** — Spoken feedback for timeout, Ollama unavailability, and generic errors
 - **Native PWA** — Installable on Android and iOS with full-screen standalone mode
-- **MLOps Pipeline** — ClearML-tracked training with automated pipeline, HPO (Optuna), and remote agent execution
+- **MLOps Pipeline** — ClearML-tracked Level 2 training with queue-separated pipeline controllers, HPO (Optuna), quality gates, model artifact promotion, and remote agent execution
 - **Inference Monitoring** — In-browser latency/FPS/confidence tracking with periodic console logging
-- **Local-First Privacy** — All detection (ONNX Runtime Web) and VLM (Ollama) runs on your hardware
+- **Local-First Fast Lane** — Object detection runs in the browser; Slow Lane backend depends on the selected deployment mode
 
 ---
 
@@ -56,11 +56,11 @@ VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives vi
 | **Object Detection** | YOLO26n via ONNX Runtime Web (WASM) |
 | **Object Tracking** | IoU-based multi-object tracker with velocity estimation |
 | **Distance Estimation** | Pinhole camera model with known object heights |
-| **Vision-Language Model** | Qwen3-VL (local via Ollama) |
+| **Vision-Language Model** | Qwen3-VL via local Ollama, or Cloudflare Workers AI in production |
 | **Styling** | Vanilla CSS — glassmorphism design system |
 | **Testing** | Vitest + Testing Library |
-| **MLOps** | ClearML + Ultralytics YOLO + Optuna HPO |
-| **CI/CD** | GitHub Actions |
+| **MLOps** | ClearML + ClearML Agent + Ultralytics YOLO + Optuna HPO |
+| **CI/CD** | GitHub Actions + Cloudflare Pages |
 
 ---
 
@@ -68,9 +68,9 @@ VoiceEye is an accessibility-focused **Progressive Web App (PWA)** that gives vi
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) v18+
-- [Ollama](https://ollama.com/) running locally (for Slow Lane)
+- [Ollama](https://ollama.com/) running locally (for Slow Lane development)
 - A YOLO26n model exported to ONNX format
-- [ClearML](https://clear.ml/) (optional — for custom model training)
+- [ClearML](https://clear.ml/) (optional for app usage; required for custom training and MLOps)
 
 ### Quick Start
 
@@ -132,7 +132,7 @@ Open `https://<your-local-ip>:5173` on your phone and accept the self-signed cer
 
 #### 5. Run Tests
 ```bash
-npm test                       # Run all tests once (70+)
+npm test                       # Run all frontend tests once
 npm run test:watch             # Watch mode
 ```
 
@@ -174,7 +174,7 @@ VoiceEye/
 │   ├── index.css                    # Glassmorphism design system
 │   ├── hooks/
 │   │   ├── useDetectionLoop.ts      # Fast Lane: YOLO inference + tracking + alerts
-│   │   ├── useVLMEngine.ts          # Slow Lane: Ollama VLM with timeout/dedup
+│   │   ├── useVLMEngine.ts          # Slow Lane: Ollama/Workers AI VLM with timeout/dedup
 │   │   ├── useVoiceRecognition.ts   # Wake word + command parsing
 │   │   └── useSpatialAudio.ts       # TTS, beep, haptic primitives
 │   ├── components/
@@ -194,22 +194,26 @@ VoiceEye/
 │   └── test/
 │       └── setup.ts                 # Vitest setup
 ├── public/
-│   ├── models/                      # YOLO ONNX model (not in git — add manually)
+│   ├── models/                      # Deployed YOLO ONNX model (`best.onnx`)
 │   ├── icons/                       # PWA icons
 │   └── ort-wasm/                    # ONNX Runtime WASM (auto-copied by postinstall)
 ├── training/
 │   ├── config.yaml                  # Training hyperparameters (single source of truth)
 │   ├── train.py                     # ClearML-tracked training script
-│   ├── pipeline.py                  # 4-step ClearML pipeline (local or remote)
-│   ├── hpo.py                       # Hyperparameter optimization (Optuna + ClearML)
+│   ├── pipeline.py                  # ClearML pipeline: train, hpo-only, or hpo+train
+│   ├── hpo.py                       # Legacy/standalone HPO helper
+│   ├── promote_check.py             # Finds production-tagged model artifacts for promotion
 │   ├── validate_config.py           # Config validation for CI
 │   ├── requirements.txt             # Python dependencies
 │   ├── agent_setup.md               # ClearML Agent setup guide
 │   └── model_card.md                # Model card template
 ├── .github/workflows/
-│   ├── frontend-ci.yml              # Lint + build on PR
-│   ├── training-config-validate.yml # Config validation on PR
-│   └── model-download.yml           # Download model from ClearML
+│   ├── frontend-ci.yml              # Frontend build/test
+│   ├── training-ci.yml              # Training config + smoke tests
+│   ├── pipeline-ct.yml              # Enqueue ClearML pipeline
+│   ├── model-promote.yml            # Find promotable ClearML artifacts
+│   ├── model-download.yml           # Download model from ClearML and open PR
+│   └── pages-deploy.yml             # Deploy Cloudflare Pages
 ├── mlops_clearml_yolo.ipynb         # Interactive training notebook
 ├── start.bat                        # One-click start (Windows)
 ├── start.sh                         # One-click start (macOS/Linux)
@@ -221,57 +225,95 @@ VoiceEye/
 
 ## MLOps Workflow
 
-VoiceEye includes a full MLOps pipeline for training, optimising, and deploying YOLO26n models.
+VoiceEye includes a ClearML Level 2 pipeline for dataset-backed training, HPO, quality-gated export, and model promotion.
 
-### Quick Start
+### Current Configuration
+
+`training/config.yaml` is the single source of truth for `train.py`, `pipeline.py`, and HPO trials.
+
+| Setting | Current value |
+| :--- | :--- |
+| ClearML project | `VoiceEye` |
+| Dataset ID | `eb9fd0e9607242029dbf8fe729b88b4f` |
+| Default pipeline mode | `train` |
+| HPO trials | `4` |
+| HPO concurrency | `2` |
+| HPO trial length | `3` epochs |
+| Final training length | `50` epochs |
+| Stability settings | `amp: false`, `batch: 16`, `imgsz: 640`, `lr0: 0.001` |
+| Quality gate | `mAP@50 >= 0.40` |
+
+The current dataset is a ClearML reference dataset registered with external `file://` paths. It is fast and avoids uploading the full image set, but every agent that runs dataset steps must be on the machine where those paths exist.
+
+### Agent Queues
+
+Use separate agents for the pipeline controller, CPU steps, and GPU training. This prevents the HPO coordinator from occupying the only GPU worker while trial tasks wait in the `gpu` queue.
+
+```bash
+# Terminal 1 - long-lived pipeline controller
+clearml-agent daemon --queue services
+
+# Terminal 2 - CPU-only pipeline steps and HPO coordinator
+clearml-agent daemon --queue cpu --cpu-only
+
+# Terminal 3 - GPU training and HPO trials
+clearml-agent daemon --queue gpu --gpus 0
+```
+
+Avoid using one mixed `gpu cpu` worker for HPO pipeline runs unless another GPU worker is also available.
+
+### Running the Pipeline
 
 ```bash
 pip install -r training/requirements.txt
 
-# Option 1: Interactive notebook
-jupyter notebook mlops_clearml_yolo.ipynb
-
-# Option 2: Standalone script
-python training/train.py
-
-# Option 3: Automated pipeline (local)
+# Local synchronous execution
 python training/pipeline.py
 
-# Option 4: Remote execution via clearml-agent
-clearml-agent daemon --queue gpu cpu --gpus 0
+# Remote default mode from config.yaml: data_prep -> train -> evaluate -> export
 python training/pipeline.py --remote
+
+# HPO search only: data_prep -> hpo
+python training/pipeline.py --remote --mode hpo-only
+
+# HPO followed by final training: data_prep -> hpo -> train -> evaluate -> export
+python training/pipeline.py --remote --mode hpo+train
 ```
 
-### Hyperparameter Optimization
-
-```bash
-# 1. Create template task (short run)
-python training/train.py --epochs 5
-
-# 2. Run HPO with Optuna (requires clearml-agent)
-python training/hpo.py --template-task-id <TASK_ID> --max-trials 20
-
-# 3. Best params auto-saved to config.yaml
-# 4. Full training with optimized config
-python training/pipeline.py --remote
-```
+`hpo-only` only searches for good parameters. It does not export or promote a model. Use `hpo+train` when you want the best HPO result to feed a final train/evaluate/export chain.
 
 ### Pipeline Steps
 
-| Step | Queue | Function |
-| :--- | :--- | :--- |
-| 1. Data Prep | cpu | Fetch dataset from ClearML, validate `data.yaml` |
-| 2. Train | gpu | YOLO26n training (150 epochs, cosine LR, early stopping) |
-| 3. Evaluate | cpu | Validation metrics + quality gate (mAP@50 >= 0.40) |
-| 4. Export | cpu | ONNX export + SHA-256 checksum + ClearML artifact upload |
+| Mode | Step | Queue | Function |
+| :--- | :--- | :--- | :--- |
+| all | Data Prep | `cpu` | Fetch ClearML dataset and validate `data.yaml` |
+| `hpo-only`, `hpo+train` | HPO | `cpu` coordinator, `gpu` trials | Run Optuna over cloned ClearML training tasks |
+| `train`, `hpo+train` | Train | `gpu` | Train YOLO26n using config or HPO winners |
+| `train`, `hpo+train` | Evaluate | `cpu` | Validate metrics and enforce quality gate |
+| `train`, `hpo+train` | Export | `cpu` | Export ONNX, upload artifact, tag production |
+
+The HPO controller uses `max_iteration_per_job` equal to `hpo_trial_epochs`, which is required by `OptimizerOptuna` and prevents the ClearML optimizer from killing trials before their configured epoch budget.
+
+### Model Promotion
+
+Successful export tasks upload the ONNX artifact as `fastlane_onnx_model` and apply the configured production tag. GitHub Actions can then:
+
+1. Find a promotable ClearML task with `training/promote_check.py`.
+2. Trigger `model-download.yml`.
+3. Download the artifact to `public/models/best.onnx`.
+4. Open a pull request with the new deployed model.
 
 ### CI/CD
 
 | Workflow | Trigger | Purpose |
 | :--- | :--- | :--- |
-| Frontend CI | PR (src/, public/) | `npm run lint` + `npm run build` |
-| Config Validation | PR (training/config.yaml) | Validate training parameters |
-| Model Download | Manual dispatch | Download ONNX from ClearML, open PR |
+| `frontend-ci.yml` | Frontend changes / PR | Build and test the React app |
+| `training-ci.yml` | Training changes / PR | Validate config and run training/data-prep tests |
+| `training-config-validate.yml` | Config changes / PR | Fast config-only validation |
+| `pipeline-ct.yml` | Push to `main` or manual dispatch | Enqueue ClearML pipeline in `train`, `hpo-only`, or `hpo+train` mode |
+| `model-promote.yml` | Scheduled/manual | Detect production-tagged ClearML model artifacts |
+| `model-download.yml` | Manual/triggered | Download ONNX from ClearML and open a model update PR |
+| `pages-deploy.yml` | Push/PR | Deploy Cloudflare Pages production or preview builds |
 
 See [training/agent_setup.md](training/agent_setup.md) for ClearML Agent configuration.
 
