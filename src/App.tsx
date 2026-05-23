@@ -137,7 +137,7 @@ const App: React.FC = () => {
                 const top    = (track.bbox[1] / videoElement.videoHeight) * 100;
                 const width  = (track.bbox[2] / videoElement.videoWidth)  * 100;
                 const height = (track.bbox[3] / videoElement.videoHeight) * 100;
-                const dist   = estimateDistance(track.bbox[3], videoElement.videoHeight, track.class);
+                const dist   = estimateDistance(track.bbox[3], videoElement.videoHeight, track.class, { verticalFovDeg: settings.cameraVfovDeg });
 
                 const zone = track.proximityZone;
                 const boxColor = zone === 'danger' ? '#ef4444'
