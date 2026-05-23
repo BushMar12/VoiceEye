@@ -198,3 +198,22 @@ export function estimateDistance(
 ): string {
   return estimateDistanceMeters(bboxHeightPx, videoHeightPx, className, options)?.label ?? '';
 }
+
+/**
+ * Same as estimateDistance, but formatted for text-to-speech. The visual
+ * label (e.g. "~1.2m") reads literally as "tilde one point two m" through
+ * SpeechSynthesis - this returns "about 1.2 metres" / "over 5 metres" instead.
+ */
+export function estimateDistanceForSpeech(
+  bboxHeightPx: number,
+  videoHeightPx: number,
+  className: string,
+  options: DistanceEstimateOptions = {},
+): string {
+  const estimate = estimateDistanceMeters(bboxHeightPx, videoHeightPx, className, options);
+  if (!estimate) return '';
+  const maxDistanceM = options.maxDistanceM ?? 10;
+  if (estimate.distanceM >= maxDistanceM) return `over ${Math.round(maxDistanceM)} metres`;
+  if (estimate.distanceM > 5) return 'over 5 metres';
+  return `about ${estimate.distanceM.toFixed(1)} metres`;
+}

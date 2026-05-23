@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { InferenceSession } from 'onnxruntime-web';
 import { loadYoloModel, runYolo } from '../utils/yolo';
 import { type Track, updateTracks } from '../utils/tracker';
-import { estimateDistance } from '../utils/distance';
+import { estimateDistanceForSpeech } from '../utils/distance';
 import { inferenceMetrics } from '../utils/inferenceMetrics';
 import { createAttentionState, runAttention, type AttentionState, type Announcement } from '../utils/attention';
 import type { AppSettings } from '../components/SettingsPanel';
@@ -23,8 +23,8 @@ interface UseDetectionLoopOptions {
   playBeep: (freq?: number, durationS?: number) => void;
 }
 
-function formatAnnouncement(ann: Announcement, frameHeight: number): string {
-  const dist = estimateDistance(ann.bbox[3], frameHeight, ann.class);
+function formatAnnouncement(ann: Announcement, frameHeight: number, verticalFovDeg: number): string {
+  const dist = estimateDistanceForSpeech(ann.bbox[3], frameHeight, ann.class, { verticalFovDeg });
   const distSuffix = dist ? `, ${dist}` : '';
 
   if (ann.kind === 'group') {
@@ -113,7 +113,7 @@ export function useDetectionLoop({
             // otherwise collapse the budget (K=3 in Normal) down to "last only".
             if (out.toAnnounce.length > 0) {
               const phrase = out.toAnnounce
-                .map(ann => formatAnnouncement(ann, vh))
+                .map(ann => formatAnnouncement(ann, vh, settingsRef.current.cameraVfovDeg))
                 .join('. ');
               speak(phrase, undefined, settingsRef.current.ttsRate);
             }

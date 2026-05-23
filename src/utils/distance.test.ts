@@ -3,6 +3,7 @@ import {
   calibrateVerticalFovDeg,
   distanceRelativeError,
   estimateDistance,
+  estimateDistanceForSpeech,
   estimateDistanceMeters,
   KNOWN_HEIGHTS_M,
 } from './distance';
@@ -166,5 +167,37 @@ describe('estimateDistance', () => {
     expect(distanceRelativeError(2.7, 3)).toBeCloseTo(0.1);
     expect(distanceRelativeError(0, 3)).toBeNull();
     expect(distanceRelativeError(3, 0)).toBeNull();
+  });
+});
+
+describe('estimateDistanceForSpeech', () => {
+  it('returns empty string for invalid bbox', () => {
+    expect(estimateDistanceForSpeech(0, 480, 'person')).toBe('');
+    expect(estimateDistanceForSpeech(-10, 480, 'person')).toBe('');
+    expect(estimateDistanceForSpeech(100, 0, 'person')).toBe('');
+  });
+
+  it('returns "about X.X metres" for typical distances', () => {
+    expect(estimateDistanceForSpeech(240, 480, 'person')).toMatch(/^about \d+\.\d+ metres$/);
+  });
+
+  it('returns "over 5 metres" for moderately distant objects', () => {
+    expect(estimateDistanceForSpeech(80, 480, 'person')).toBe('over 5 metres');
+  });
+
+  it('returns "over 10 metres" for very distant objects', () => {
+    expect(estimateDistanceForSpeech(5, 480, 'person')).toBe('over 10 metres');
+  });
+
+  it('contains no characters that read literally through TTS', () => {
+    const speech = estimateDistanceForSpeech(240, 480, 'person');
+    expect(speech).not.toContain('~');
+    expect(speech).not.toMatch(/\dm\b/);
+  });
+
+  it('honours verticalFovDeg override', () => {
+    const narrow = estimateDistanceForSpeech(200, 480, 'person', { verticalFovDeg: 50 });
+    const wide   = estimateDistanceForSpeech(200, 480, 'person', { verticalFovDeg: 90 });
+    expect(narrow).not.toBe(wide);
   });
 });
