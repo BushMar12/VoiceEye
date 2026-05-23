@@ -5,6 +5,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import { CAMERA_VFOV_DEG, MIN_CAMERA_VFOV_DEG, MAX_CAMERA_VFOV_DEG } from '../config';
 
 export type Verbosity = 'quiet' | 'normal' | 'detailed';
 
@@ -13,6 +14,7 @@ export interface AppSettings {
   confThreshold: number;
   hapticEnabled: boolean;
   verbosity: Verbosity;
+  cameraVfovDeg: number;
 }
 
 const DEFAULTS: AppSettings = {
@@ -20,6 +22,7 @@ const DEFAULTS: AppSettings = {
   confThreshold: 0.5,
   hapticEnabled: true,
   verbosity: 'normal',
+  cameraVfovDeg: CAMERA_VFOV_DEG,
 };
 
 const STORAGE_KEY = 'voiceeye_settings';
@@ -99,6 +102,22 @@ const SettingsPanel: React.FC<Props> = ({ settings, onChange, onClose }) => {
               aria-label="Object detection confidence threshold"
             />
             <span className="settings-value">{(local.confThreshold * 100).toFixed(0)}%</span>
+          </div>
+        </label>
+
+        {/* Camera Field of View — calibrates monocular distance estimation per device */}
+        <label className="settings-row">
+          <span className="settings-label">Camera Field of View</span>
+          <div className="settings-control">
+            <input
+              type="range"
+              className="settings-slider"
+              min={MIN_CAMERA_VFOV_DEG} max={MAX_CAMERA_VFOV_DEG} step="1"
+              value={local.cameraVfovDeg}
+              onChange={e => update({ cameraVfovDeg: parseInt(e.target.value, 10) })}
+              aria-label="Camera vertical field of view in degrees"
+            />
+            <span className="settings-value">{local.cameraVfovDeg}&deg;</span>
           </div>
         </label>
 

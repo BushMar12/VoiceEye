@@ -30,6 +30,8 @@ export const YOLO_MODEL_PATH = '/models/best.onnx';
 // ── Distance Estimation ────────────────────────────────────────────────
 export const DEFAULT_OBJECT_HEIGHT_M = 0.50;
 export const CAMERA_VFOV_DEG = 70;
+export const MIN_CAMERA_VFOV_DEG = 40;
+export const MAX_CAMERA_VFOV_DEG = 120;
 
 // ── VLM (Slow Lane) ───────────────────────────────────────────────────
 export const VLM_TIMEOUT_MS = 60_000;       // allow cold Ollama starts without false timeouts
