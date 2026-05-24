@@ -6,7 +6,14 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores([
+    'dist',
+    // Pytest scratch directories from training runs; not source we lint.
+    '.tmp-*',
+    'pytest-tmp',
+    // Python virtualenv — Matplotlib ships bundled JS we don't own.
+    '.venv',
+  ]),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

@@ -7,7 +7,14 @@ import { useSpatialAudio } from './hooks/useSpatialAudio';
 import { useVLMEngine } from './hooks/useVLMEngine';
 import { useVoiceRecognition } from './hooks/useVoiceRecognition';
 import { useDetectionLoop } from './hooks/useDetectionLoop';
-import { FULL_INTRO_MESSAGE, SHORT_INTRO_MESSAGE, BBOX_MIN_SCORE, VLM_DISPLAY_LABEL } from './config';
+import { useHoldToTalk } from './hooks/useHoldToTalk';
+import {
+  FULL_INTRO_MESSAGE,
+  SHORT_INTRO_MESSAGE,
+  BBOX_MIN_SCORE,
+  VLM_DISPLAY_LABEL,
+  COMMAND_WINDOW_MESSAGE,
+} from './config';
 import './index.css';
 
 const HEARD_FLASH_MS = 2000;
@@ -28,7 +35,7 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('voiceeye_launched', 'true'); }, []);
 
   // Audio primitives — isSpeaking is driven by SpeechSynthesisUtterance lifecycle events
-  const { unlockAudio, speak, speakQuick, playBeep, isSpeaking: ttsSpeaking } = useSpatialAudio();
+  const { unlockAudio, speak, speakQuick, playBeep } = useSpatialAudio();
 
   // VLM (Slow Lane)
   const vlm = useVLMEngine({
@@ -39,10 +46,7 @@ const App: React.FC = () => {
     setLatestMessage,
   });
 
-  // Hard-mute the mic any time the assistant is speaking OR the VLM is still speaking
-  const isAssistantSpeaking = ttsSpeaking || vlm.isSpeaking;
-
-  // Keep a stable ref for voice recognition callbacks
+  // Keep a stable ref for voice + gesture callbacks
   const vlmTriggerRef = useRef(vlm.trigger);
   useEffect(() => { vlmTriggerRef.current = vlm.trigger; }, [vlm.trigger]);
 
@@ -55,12 +59,58 @@ const App: React.FC = () => {
       () => setLatestMessage(defaultMessage),
       HEARD_FLASH_MS,
     );
-  }, [defaultMessage, setLatestMessage]);
+  }, [defaultMessage]);
 
-  // Voice recognition
-  const { isListening } = useVoiceRecognition({
+  // ── Hold-to-talk gesture ↔ on-demand voice recognition bridge ──────────
+  //
+  // The two hooks are mutually recursive (the gesture activates the mic;
+  // the mic, on result OR timeout, closes the gesture's visible window).
+  // We resolve the cycle by declaring the bridge callbacks first, then
+  // wiring them via refs that are filled in once each hook returns.
+
+  const voiceActivateRef = useRef<() => void>(() => {});
+  const voiceDeactivateRef = useRef<() => void>(() => {});
+  const closeCommandWindowRef = useRef<() => void>(() => {});
+
+  // Called by the gesture hook at 3 s lock-in. Open the mic.
+  const handleActivate = useCallback(() => {
+    voiceActivateRef.current();
+  }, []);
+
+  // Called by the gesture hook when its 8 s window times out without a
+  // result. Stop the mic so we don't leak the session.
+  const handleDeactivate = useCallback(() => {
+    voiceDeactivateRef.current();
+  }, []);
+
+  // Called by SpeechRecognition when a result fires OR when recognition
+  // ends without dispatching anything. Either way, close the visible
+  // "Listening…" window so the user doesn't wait for the full 8 s.
+  const handleResolved = useCallback(() => {
+    closeCommandWindowRef.current();
+  }, []);
+
+  // The hold-to-talk gesture itself. onTap fires the quick describe (same
+  // as the previous global tap behaviour). onActivate opens the mic.
+  const hold = useHoldToTalk({
+    onTap: useCallback(() => {
+      unlockAudio();
+      vlmTriggerRef.current();
+    }, [unlockAudio]),
+    onActivate: handleActivate,
+    onDeactivate: handleDeactivate,
+    unlockAudio,
+    disabled: showSettings,
+  });
+
+  // Mirror the close callback into the ref now that the hook has returned.
+  useEffect(() => {
+    closeCommandWindowRef.current = hold.closeCommandWindow;
+  }, [hold.closeCommandWindow]);
+
+  // Voice recognition (on-demand)
+  const voice = useVoiceRecognition({
     enabled: !!videoElement,
-    isAssistantSpeaking,
     isVLMBusy: vlm.isProcessing || vlm.isSpeaking,
     onDescribe: useCallback(() => {
       vlmTriggerRef.current('Describe', '');
@@ -72,14 +122,53 @@ const App: React.FC = () => {
       vlmTriggerRef.current('Search', query);
     }, []),
     onHeard,
+    onResolved: handleResolved,
     playBeep,
     speakQuick,
   });
 
-  // Fast Lane — detection + tracking
+  // Mirror the voice activate/deactivate methods into refs the gesture
+  // callbacks already reference.
+  useEffect(() => {
+    voiceActivateRef.current = voice.activate;
+    voiceDeactivateRef.current = voice.deactivate;
+  }, [voice.activate, voice.deactivate]);
+
+  // ── Unsupported-browser fallback ────────────────────────────────────────
+  // The press-and-hold gesture still works for tap (Describe) even when
+  // SpeechRecognition is missing — we just tell the user once.
+  const voiceFallbackSpokenRef = useRef(false);
+  useEffect(() => {
+    if (voice.isSupported) return;
+    if (!videoElement) return;
+    if (voiceFallbackSpokenRef.current) return;
+    voiceFallbackSpokenRef.current = true;
+    const msg = 'Voice commands are not supported in this browser. Tap the screen to describe what is around you.';
+    setLatestMessage(msg);
+    speak(msg, undefined, settings.ttsRate);
+  }, [voice.isSupported, videoElement, speak, settings.ttsRate]);
+
+  // ── Visible "Listening…" message while the command window is open ──────
+  // Track the previous awake state so we can restore the default message
+  // when the window closes (without clobbering an in-flight VLM message).
+  const wasAwakeRef = useRef(false);
+  useEffect(() => {
+    if (hold.isAwaitingCommand && !wasAwakeRef.current) {
+      setLatestMessage(COMMAND_WINDOW_MESSAGE);
+    } else if (!hold.isAwaitingCommand && wasAwakeRef.current) {
+      // Only revert if we're still showing the listening message — don't
+      // clobber a VLM response that landed during the window.
+      setLatestMessage(prev => prev === COMMAND_WINDOW_MESSAGE ? defaultMessage : prev);
+    }
+    wasAwakeRef.current = hold.isAwaitingCommand;
+  }, [hold.isAwaitingCommand, defaultMessage]);
+
+  // Fast Lane — detection + tracking. Pass isAwaitingCommand so the loop
+  // can mute per-frame announcements while the user is mid-command.
   const { renderedTracks } = useDetectionLoop({
     videoElement,
     isProcessingSlowLane: vlm.isProcessing || vlm.isSpeaking,
+    isCommandWindowOpen: hold.isAwaitingCommand,
     settings,
     speak,
     playBeep,
@@ -91,39 +180,73 @@ const App: React.FC = () => {
     speak(msg, undefined, settings.ttsRate);
   }, [speak, settings.ttsRate]);
 
+  // ── Hold gesture style — drives the conic-gradient progress ring ──────
+  // Updated every animation frame inside useHoldToTalk via setHoldProgress.
+  const holdStyle = {
+    ['--hold-progress' as string]: hold.holdProgress.toFixed(3),
+  } as React.CSSProperties;
+
   // Render
   return (
-    <div className="app-container" onClick={() => { unlockAudio(); vlm.trigger(); }}>
+    <div
+      className={`app-container ${hold.isAwaitingCommand ? 'awaiting-command' : ''}`}
+      style={holdStyle}
+      {...hold.bindHandlers}
+    >
       <CameraView
         onVideoReady={setVideoElement}
         onError={handleCameraError}
         isProcessing={vlm.isProcessing}
       />
 
+      {/* Press-and-hold progress ring overlay — visible only when the user
+          is mid-hold, and only after a tap-grace period (handled in CSS). */}
+      <div
+        className="hold-progress-ring"
+        aria-hidden="true"
+        data-active={hold.holdProgress > 0 ? 'true' : 'false'}
+      >
+        <div className="hold-progress-ring-inner">
+          <span className="hold-progress-ring-label">Hold to talk</span>
+        </div>
+      </div>
+
       <div className="ui-layer">
 
         {/* Header */}
         <header className="app-header">
-          <div className="logo">
-            <Eye className="text-white" size={28} />
+          <h1 className="logo">
+            <Eye className="text-white" size={28} aria-hidden="true" />
             VoiceEye
-          </div>
+          </h1>
 
-          <div className="status-badge" style={{ display: 'flex', gap: '0.5rem' }}>
-            {isListening && (
-              <span style={{ fontSize: '0.7rem', color: '#10b981' }}>🎙️ Listening</span>
+          <div
+            className="status-badge"
+            style={{ display: 'flex', gap: '0.5rem' }}
+            role="status"
+            aria-live="polite"
+          >
+            {hold.isAwaitingCommand && (
+              <span style={{ fontSize: '0.7rem', color: '#10b981' }}>
+                <span aria-hidden="true">🎙️ </span>Listening
+              </span>
             )}
-            <div className={`status-dot ${videoElement ? '' : 'hidden'}`}></div>
+            <div className={`status-dot ${videoElement ? '' : 'hidden'}`} aria-hidden="true"></div>
             {videoElement ? vlm.vlmMode : 'Loading...'}
           </div>
 
           <button
             className="glass-button"
             style={{ width: '44px', height: '44px' }}
+            // stopPropagation keeps the Settings tap from also firing the
+            // hold gesture's tap handler.
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); setShowSettings(s => !s); }}
             aria-label="Settings"
+            aria-haspopup="dialog"
+            aria-expanded={showSettings}
           >
-            <Settings size={20} />
+            <Settings size={20} aria-hidden="true" />
           </button>
         </header>
 
@@ -171,28 +294,37 @@ const App: React.FC = () => {
 
             <div className="lane-indicators">
               <div className="lane-badge active">
-                <Zap size={14} />
+                <Zap size={14} aria-hidden="true" />
                 YOLO: Fast Lane
               </div>
               <div className={`lane-badge ${vlm.isProcessing ? 'active' : ''}`}>
-                <ImageIcon size={14} />
+                <ImageIcon size={14} aria-hidden="true" />
                 {VLM_DISPLAY_LABEL}
               </div>
             </div>
 
-            <p className="voice-hint" aria-hidden="true">
-              Say &ldquo;Voice Eye&rdquo; then: <strong>describe</strong> &middot; <strong>read</strong> &middot; <strong>find &lt;object&gt;</strong>
-            </p>
+            {voice.isSupported ? (
+              <p className="voice-hint" aria-hidden="true">
+                <strong>Tap</strong> to describe &middot; <strong>Press and hold</strong> for: describe &middot; read &middot; find &lt;object&gt;
+              </p>
+            ) : (
+              <p className="voice-hint" aria-hidden="true">
+                Voice commands unavailable here — <strong>tap anywhere to describe the scene</strong>.
+              </p>
+            )}
           </div>
 
           <div className="trigger-button-container">
-            <div className={`trigger-radar ${vlm.isProcessing ? 'scanning' : ''}`}></div>
+            <div className={`trigger-radar ${vlm.isProcessing ? 'scanning' : ''}`} aria-hidden="true"></div>
             <button
               className={`trigger-button ${vlm.isProcessing ? 'listening' : ''}`}
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); unlockAudio(); vlm.trigger(); }}
-              aria-label="Describe scene"
+              aria-label={vlm.isProcessing ? 'Analyzing scene, please wait' : 'Describe scene'}
+              aria-busy={vlm.isProcessing}
+              disabled={vlm.isProcessing}
             >
-              <Eye size={36} />
+              <Eye size={36} aria-hidden="true" />
             </button>
           </div>
         </div>

@@ -23,7 +23,12 @@ export const HAPTIC_SINGLE_PULSE_THRESHOLD = 0.5;
 
 // ── YOLO Model ─────────────────────────────────────────────────────────
 export const YOLO_INPUT_SIZE = 640;
-export const YOLO_DEFAULT_CONF = 0.5;
+// Confidence sweep against `public/models/best.onnx` (docs/sprint-3-conf-sweep.json):
+// empirical F1 peak = 0.517 at conf 0.183. We pick 0.25 instead — 1.3% below peak
+// but with a precision bias (P=0.66 vs R=0.44) which is the right trade for
+// assistive alerts: false positives erode trust faster than misses (and tier-1
+// hazards still bypass the attention budget downstream).
+export const YOLO_DEFAULT_CONF = 0.25;
 export const YOLO_IOU_THRESHOLD = 0.45;
 export const YOLO_MODEL_PATH = '/models/best.onnx';
 
@@ -80,6 +85,17 @@ export const BEEP_GAIN = 0.3;
 export const QUICK_TTS_RATE = 1.3;
 export const QUICK_TTS_VOLUME = 0.8;
 
+// ── Hold-to-Talk Gesture ───────────────────────────────────────────────
+// Replaces the old "Voice Eye" wake word + continuous SpeechRecognition.
+// Press-and-hold for HOLD_TO_TALK_MS locks in command mode; pointerup
+// before TAP_MAX_MS counts as a quick tap (fires the Slow Lane describe).
+// After lock-in, the mic stays open for COMMAND_WINDOW_MS waiting for a
+// describe/read/find phrase; if no command arrives, the window closes
+// silently.
+export const HOLD_TO_TALK_MS = 3000;
+export const TAP_MAX_MS = 250;
+export const COMMAND_WINDOW_MS = 8000;
+
 // ── Bounding Box Rendering ─────────────────────────────────────────────
 export const BBOX_MIN_SCORE = 0.5;          // minimum score to render a bounding box
 
@@ -88,8 +104,9 @@ export const METRICS_BUFFER_SIZE = 100;
 export const METRICS_LOG_INTERVAL = 300;    // log every N frames
 
 // ── UI Messages ────────────────────────────────────────────────────────
-export const FULL_INTRO_MESSAGE = "Camera ready. Tap the screen, or say Voice Eye describe, Voice Eye read, or Voice Eye find followed by an object.";
+export const FULL_INTRO_MESSAGE = "Camera ready. Tap the screen to describe the scene, or press and hold to give a voice command.";
 export const SHORT_INTRO_MESSAGE = 'Ready';
+export const COMMAND_WINDOW_MESSAGE = 'Listening — say describe, read, or find something.';
 
 // ── Attention Pipeline ─────────────────────────────────────────────────
 import type { ProximityZone } from './utils/tracker';
