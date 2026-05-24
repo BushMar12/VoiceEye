@@ -14,6 +14,8 @@ import {
   BBOX_MIN_SCORE,
   VLM_DISPLAY_LABEL,
   COMMAND_WINDOW_MESSAGE,
+  COMMAND_CLOSED_TONE_HZ,
+  COMMAND_CLOSED_TONE_S,
 } from './config';
 import './index.css';
 
@@ -72,23 +74,41 @@ const App: React.FC = () => {
   const voiceDeactivateRef = useRef<() => void>(() => {});
   const closeCommandWindowRef = useRef<() => void>(() => {});
 
-  // Called by the gesture hook at 3 s lock-in. Open the mic.
+  // Called by the gesture hook at 2 s lock-in.
+  //
+  // Three-stage cue sequence so voice activation is discoverable for
+  // visually impaired users without re-introducing the mic-bleed problem
+  // the original wake word had:
+  //   1. Instant 880 Hz beep so the user hears "hold completed" the
+  //      moment the threshold is crossed (no TTS startup delay).
+  //   2. Quick spoken "Listening" prompt.
+  //   3. Recognition.start() chained onto the utterance's onend so the
+  //      device speaker is silent before the mic opens.
   const handleActivate = useCallback(() => {
-    voiceActivateRef.current();
-  }, []);
+    playBeep();
+    speakQuick('Listening', () => voiceActivateRef.current());
+  }, [playBeep, speakQuick]);
 
   // Called by the gesture hook when its 8 s window times out without a
-  // result. Stop the mic so we don't leak the session.
+  // result. Stop the mic so we don't leak the session — onResolved(false)
+  // will then fire the "Cancelled" cue.
   const handleDeactivate = useCallback(() => {
     voiceDeactivateRef.current();
   }, []);
 
-  // Called by SpeechRecognition when a result fires OR when recognition
-  // ends without dispatching anything. Either way, close the visible
-  // "Listening…" window so the user doesn't wait for the full 8 s.
-  const handleResolved = useCallback(() => {
+  // Called by SpeechRecognition when a result fires (matched=true) OR when
+  // recognition ends without dispatching anything (matched=false). Either
+  // way, close the visible "Listening…" window so the user doesn't wait
+  // for the full 8 s. When unmatched, also play a distinct closed-tone
+  // earcon + spoken "Cancelled" so the user knows the window has shut and
+  // can press-and-hold again.
+  const handleResolved = useCallback((matched: boolean) => {
     closeCommandWindowRef.current();
-  }, []);
+    if (!matched) {
+      playBeep(COMMAND_CLOSED_TONE_HZ, COMMAND_CLOSED_TONE_S);
+      speakQuick('Cancelled');
+    }
+  }, [playBeep, speakQuick]);
 
   // The hold-to-talk gesture itself. onTap fires the quick describe (same
   // as the previous global tap behaviour). onActivate opens the mic.

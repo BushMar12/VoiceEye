@@ -275,7 +275,7 @@ export function useVoiceRecognition({
     const rec = recognitionRef.current;
     if (!rec) {
       // useEffect hasn't run yet (shouldn't happen in practice given that
-      // activate() is invoked after a 3 s hold). Best effort: close cleanly.
+      // activate() is invoked after the 2 s hold). Best effort: close cleanly.
       stateRef.current.onResolved(false);
       return;
     }

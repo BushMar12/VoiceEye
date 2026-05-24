@@ -130,9 +130,10 @@ body {
     radial-gradient(circle, transparent 56px, #000 58px);
 }
 
-/* Only reveal the ring once the user is committed — past 150 ms of holding
-   (= ~0.05 of HOLD_TO_TALK_MS at 3000 ms). data-active is set as soon as
-   useHoldToTalk has a non-zero progress; the opacity step picks it up. */
+/* Only reveal the ring once the user is committed — past ~150 ms of
+   holding (a small grace at the start of HOLD_TO_TALK_MS = 2000 ms).
+   data-active is set as soon as useHoldToTalk has a non-zero progress;
+   the opacity step picks it up. */
 .hold-progress-ring[data-active='true'] {
   opacity: 1;
 }

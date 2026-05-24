@@ -87,14 +87,24 @@ export const QUICK_TTS_VOLUME = 0.8;
 
 // ── Hold-to-Talk Gesture ───────────────────────────────────────────────
 // Replaces the old "Voice Eye" wake word + continuous SpeechRecognition.
-// Press-and-hold for HOLD_TO_TALK_MS locks in command mode; pointerup
-// before TAP_MAX_MS counts as a quick tap (fires the Slow Lane describe).
+// Press-and-hold for HOLD_TO_TALK_MS (2 s) locks in command mode;
+// pointerup before TAP_MAX_MS counts as a quick tap (fires the Slow Lane
+// describe). On lock-in App.tsx speaks "Listening" and only then opens
+// the mic — the device speaker is silent by the time SpeechRecognition
+// starts, so the prompt does not bleed back into the microphone.
 // After lock-in, the mic stays open for COMMAND_WINDOW_MS waiting for a
 // describe/read/find phrase; if no command arrives, the window closes
-// silently.
-export const HOLD_TO_TALK_MS = 3000;
+// with a brief "Cancelled" cue + the COMMAND_CLOSED_TONE_HZ earcon.
+export const HOLD_TO_TALK_MS = 2000;
 export const TAP_MAX_MS = 250;
 export const COMMAND_WINDOW_MS = 8000;
+
+// Pitch used for the "command window closed without a match" earcon.
+// Distinct from BEEP_FREQUENCY_HZ (880) which fires on lock-in, and from
+// DEESCALATION_TONE_HZ (440) which fires when a danger track resolves —
+// 660 Hz sits between the two so the user can tell them apart by ear.
+export const COMMAND_CLOSED_TONE_HZ = 660;
+export const COMMAND_CLOSED_TONE_S = 0.12;
 
 // ── Bounding Box Rendering ─────────────────────────────────────────────
 export const BBOX_MIN_SCORE = 0.5;          // minimum score to render a bounding box

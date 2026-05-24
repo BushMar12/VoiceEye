@@ -37,7 +37,7 @@ type HoldHandlers = {
  *   pointerdown                        → start hold timer + progress rAF
  *   pointerup < TAP_MAX_MS             → onTap()  (quick describe)
  *   pointerup >= TAP_MAX_MS, < hold    → discarded (no tap, no command)
- *   hold passes HOLD_TO_TALK_MS        → onActivate() + open command window
+ *   hold passes HOLD_TO_TALK_MS (2 s)  → onActivate() + open command window
  *   command window closes              → onDeactivate()
  *
  * Only the first concurrent pointer is tracked. The hold can be cancelled
