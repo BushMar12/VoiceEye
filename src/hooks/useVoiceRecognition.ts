@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // ─── Minimal Web Speech API typings ───────────────────────────────────────────
 // lib.dom.d.ts ships incomplete types for SpeechRecognition (still flagged
@@ -31,36 +31,38 @@ interface WindowWithSpeech extends Window {
   webkitSpeechRecognition?: SpeechRecognitionConstructor;
 }
 
-// ─── Wake-word detection ──────────────────────────────────────────────────────
-const WAKE_WORDS = [
-  'voice eye',
-  'voice i',
-  'voice ai',
-  'voice hi',
-  'boy eye',
-  'boy i',
-];
-
-export function hasWakeWord(transcript: string): boolean {
-  return WAKE_WORDS.some(w => transcript.includes(w));
-}
-
-// Strip the wake phrase so downstream parsing isn't distracted by it
-function stripWakeWord(transcript: string): string {
-  let t = transcript;
-  for (const w of WAKE_WORDS) {
-    t = t.split(w).join(' ');
-  }
-  return t.replace(/\s+/g, ' ').trim();
+// ─── Capability probe ────────────────────────────────────────────────────────
+// Exported so callers can decide which UI to render before the hook even runs,
+// and so it can be unit-tested without exercising the hook lifecycle.
+export function isSpeechRecognitionSupported(
+  win: WindowWithSpeech = (typeof window === 'undefined'
+    ? ({} as WindowWithSpeech)
+    : (window as WindowWithSpeech)),
+): boolean {
+  return !!(win.SpeechRecognition || win.webkitSpeechRecognition);
 }
 
 // ─── Command parser ───────────────────────────────────────────────────────────
+// No wake-word stripping any more — the hold-to-talk gesture is the explicit
+// activation signal, so the user just says "describe" / "read" / "find my
+// keys". A residual "voice eye" is still tolerated in case a user uses it
+// out of habit; it just becomes whitespace.
 
 export type ParsedCommand =
   | { type: 'describe' }
   | { type: 'read' }
   | { type: 'search'; query: string }
   | { type: 'none' };
+
+const RESIDUAL_WAKE_PHRASES = /\bvoice\s+(eye|i|ai|hi)\b/g;
+
+function normaliseTranscript(transcript: string): string {
+  return transcript
+    .toLowerCase()
+    .replace(RESIDUAL_WAKE_PHRASES, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 const DESCRIBE_PATTERNS: RegExp[] = [
   /\bdescri(be|bes|bed|bing|ption)\b/,
@@ -85,7 +87,7 @@ const SEARCH_PATTERNS: RegExp[] = [
 ];
 
 export function parseVoiceCommand(transcript: string): ParsedCommand {
-  const cleaned = stripWakeWord(transcript.toLowerCase().trim());
+  const cleaned = normaliseTranscript(transcript);
 
   for (const p of SEARCH_PATTERNS) {
     const m = cleaned.match(p);
@@ -109,92 +111,109 @@ export function parseVoiceCommand(transcript: string): ParsedCommand {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 interface UseVoiceRecognitionOptions {
+  // Permission probe — same gating useDetectionLoop used. Used to decide
+  // whether to even attempt SpeechRecognition.
   enabled: boolean;
-  isAssistantSpeaking: boolean;
+  // True if the VLM is mid-call; we still listen so the user can be told
+  // "still analysing", but we don't fire the same command twice.
   isVLMBusy: boolean;
   onDescribe: () => void;
   onRead: () => void;
   onSearch: (query: string) => void;
+  // Surface what the engine heard for the visible "Heard: ..." flash.
   onHeard: (transcript: string) => void;
+  // Called after onresult dispatches (or after a recognition end with no
+  // dispatch). Lets the parent (App.tsx via useHoldToTalk) close the
+  // visual command window without waiting for the 8 s timeout.
+  onResolved: (matched: boolean) => void;
   playBeep: () => void;
   speakQuick: (text: string) => void;
 }
 
 export function useVoiceRecognition({
   enabled,
-  isAssistantSpeaking,
   isVLMBusy,
   onDescribe,
   onRead,
   onSearch,
   onHeard,
+  onResolved,
   playBeep,
   speakQuick,
 }: UseVoiceRecognitionOptions) {
   const [isListening, setIsListening] = useState(false);
-  const awakeUntilRef = useRef<number>(0);
+  // Probed once on mount; never changes for the life of the page.
+  const [isSupported] = useState<boolean>(() => isSpeechRecognitionSupported());
 
-  // Ref to the live recognition object so effects outside the setup effect can stop/start it
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  // When true, recognition.onend should NOT auto-restart — the caller intentionally paused it
-  const intentionalStopRef = useRef(false);
+  // True between activate() and the next onend. Prevents activate() from
+  // creating overlapping recognition sessions if the user lock-ins twice.
+  const isActiveRef = useRef(false);
+  // Latched on activate to make sure onResolved fires exactly once per
+  // session, regardless of which path (onresult OR onend OR error) runs first.
+  const resolvedRef = useRef(false);
+  // Guard so the "not supported" log only ever fires once per page load
+  const unsupportedLoggedRef = useRef(false);
 
-  const stateRef = useRef({ isVLMBusy, onDescribe, onRead, onSearch, onHeard, playBeep, speakQuick });
+  const stateRef = useRef({
+    isVLMBusy, onDescribe, onRead, onSearch, onHeard, onResolved, playBeep, speakQuick,
+  });
   useEffect(() => {
-    stateRef.current = { isVLMBusy, onDescribe, onRead, onSearch, onHeard, playBeep, speakQuick };
-  }, [isVLMBusy, onDescribe, onRead, onSearch, onHeard, playBeep, speakQuick]);
+    stateRef.current = {
+      isVLMBusy, onDescribe, onRead, onSearch, onHeard, onResolved, playBeep, speakQuick,
+    };
+  }, [isVLMBusy, onDescribe, onRead, onSearch, onHeard, onResolved, playBeep, speakQuick]);
 
-  // Hard-mute: stop recognition while the assistant is speaking; restart when it finishes
-  useEffect(() => {
-    const rec = recognitionRef.current;
-    if (!rec) return;
-    if (isAssistantSpeaking) {
-      intentionalStopRef.current = true;
-      try { rec.stop(); } catch { /* already stopped */ }
-    } else if (intentionalStopRef.current) {
-      intentionalStopRef.current = false;
-      // Small delay lets the engine flush any buffered frames from the TTS tail
-      const t = setTimeout(() => {
-        try { rec.start(); } catch { /* already running */ }
-      }, 300);
-      return () => clearTimeout(t);
-    }
-  }, [isAssistantSpeaking]);
-
+  // ── Construct the SpeechRecognition instance once we know we have a
+  // ── supported browser and the parent is enabled. The instance is reused
+  // ── across activate() calls — we just call start()/stop() on it.
   useEffect(() => {
     if (!enabled) return;
 
-    const w = window as WindowWithSpeech;
-    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('[voice] SpeechRecognition not supported in this browser');
+    if (!isSupported) {
+      if (!unsupportedLoggedRef.current) {
+        unsupportedLoggedRef.current = true;
+        console.info('[voice] SpeechRecognition unavailable — hold-to-talk falls back to tap-only describe');
+      }
       return;
     }
 
+    const w = window as WindowWithSpeech;
+    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
     const recognition = new SpeechRecognition();
-    recognition.continuous = true;
+    // continuous=false means the engine stops on the first sentence — that
+    // matches the on-demand model: the user has already opened the window
+    // with a hold, so we want a single sentence and then auto-close.
+    recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = 'en-US';
     recognitionRef.current = recognition;
 
     recognition.onstart = () => {
-      console.info('[voice] recognition started');
       setIsListening(true);
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
-      console.warn('[voice] recognition error:', event.error);
+      // `no-speech` and `aborted` are routine: no-speech fires if the user
+      // didn't talk during the window, aborted fires when we deactivate().
+      // Anything else is logged for diagnosis.
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        console.warn('[voice] recognition error:', event.error);
+      }
     };
 
     recognition.onend = () => {
       setIsListening(false);
-      if (intentionalStopRef.current) {
-        console.info('[voice] recognition ended (intentional pause)');
-        return;
+      isActiveRef.current = false;
+      // If a result already arrived, resolvedRef is true and we've already
+      // notified the parent. If the user said nothing, this is where we
+      // signal "no match" so the visible window can close.
+      if (!resolvedRef.current) {
+        resolvedRef.current = true;
+        stateRef.current.onResolved(false);
       }
-      try {
-        recognition.start();
-      } catch { /* already running */ }
     };
 
     recognition.onresult = (event: SpeechRecognitionEventLike) => {
@@ -202,48 +221,91 @@ export function useVoiceRecognition({
         event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
       const s = stateRef.current;
 
-      const woke = hasWakeWord(transcript);
-      const awake = Date.now() < awakeUntilRef.current;
       const parsed = parseVoiceCommand(transcript);
+      console.info('[voice] heard:', JSON.stringify(transcript), { parsed });
+      s.onHeard(transcript);
 
-      console.info('[voice] heard:', JSON.stringify(transcript), { woke, awake, parsed });
-
-      if (!woke && !awake) return;
-
-      if (parsed.type !== 'none') {
-        if (s.isVLMBusy) {
-          s.playBeep();
-          s.speakQuick('Still analysing, one moment.');
-        } else {
-          s.playBeep();
-          s.speakQuick('Got it');
-          if (parsed.type === 'describe') s.onDescribe();
-          else if (parsed.type === 'read')   s.onRead();
-          else if (parsed.type === 'search') s.onSearch(parsed.query);
-        }
-        awakeUntilRef.current = 0;
-      } else if (woke) {
-        s.playBeep();
-        s.speakQuick("I'm listening. Say describe, read, or find something.");
-        s.onHeard(transcript);
-        awakeUntilRef.current = Date.now() + 8000;
-      } else {
-        s.onHeard(transcript);
+      if (parsed.type === 'none') {
+        // Heard speech but no recognised command — let the window close
+        // through onend without an extra beep or spoken reply.
+        return;
       }
+
+      if (s.isVLMBusy) {
+        s.playBeep();
+        s.speakQuick('Still analysing, one moment.');
+      } else {
+        s.playBeep();
+        if (parsed.type === 'describe') s.onDescribe();
+        else if (parsed.type === 'read')   s.onRead();
+        else if (parsed.type === 'search') s.onSearch(parsed.query);
+      }
+
+      // Mark resolved here so onend doesn't double-fire onResolved(false).
+      resolvedRef.current = true;
+      s.onResolved(true);
     };
 
-    intentionalStopRef.current = false;
-    try { recognition.start(); } catch { /* ignore */ }
-
     return () => {
+      recognition.onstart = null;
       recognition.onend = null;
       recognition.onerror = null;
       recognition.onresult = null;
-      try { recognition.stop(); } catch { /* ignore */ }
+      try { recognition.stop(); } catch { /* already stopped */ }
       recognitionRef.current = null;
+      isActiveRef.current = false;
+      resolvedRef.current = false;
       setIsListening(false);
     };
-  }, [enabled]);
+  }, [enabled, isSupported]);
 
-  return { isListening };
+  // ── activate(): start a single recognition session. Called by the
+  // ── press-and-hold gesture lock-in.
+  const activate = useCallback(() => {
+    if (!enabled) return;
+
+    if (!isSupported) {
+      // No SpeechRecognition: report "no match" immediately so the visible
+      // command window closes. App.tsx's lock-in path can then fall back
+      // to firing vlm.trigger() (Describe) on its own.
+      stateRef.current.onResolved(false);
+      return;
+    }
+
+    const rec = recognitionRef.current;
+    if (!rec) {
+      // useEffect hasn't run yet (shouldn't happen in practice given that
+      // activate() is invoked after the 2 s hold). Best effort: close cleanly.
+      stateRef.current.onResolved(false);
+      return;
+    }
+
+    if (isActiveRef.current) return;
+    isActiveRef.current = true;
+    resolvedRef.current = false;
+    try {
+      rec.start();
+    } catch {
+      // Some browsers throw if start() is called before a previous session
+      // has fully ended. Reset state and surface as no-match.
+      isActiveRef.current = false;
+      resolvedRef.current = true;
+      stateRef.current.onResolved(false);
+    }
+  }, [enabled, isSupported]);
+
+  // ── deactivate(): cancel an in-flight recognition session (e.g. user
+  // ── lifted off without the hold completing, or the parent timed out).
+  const deactivate = useCallback(() => {
+    if (!isActiveRef.current) return;
+    const rec = recognitionRef.current;
+    if (!rec) return;
+    try {
+      rec.stop();
+    } catch {
+      // Best effort. onend will handle cleanup.
+    }
+  }, []);
+
+  return { isListening, isSupported, activate, deactivate };
 }

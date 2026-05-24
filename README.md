@@ -158,6 +158,7 @@ Accessible via the gear icon in the top-right corner. Persisted to localStorage.
 | :--- | :--- | :--- |
 | **Voice Speed** | 0.5x – 2.0x | 1.0x |
 | **Detection Sensitivity** | 30% – 80% | 50% |
+| **Camera Field of View** | 40° – 120° | 70° |
 | **Verbosity** | Quiet / Normal / Detailed | Normal |
 | **Haptic Feedback** | On / Off | On |
 

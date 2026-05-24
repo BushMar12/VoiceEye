@@ -23,13 +23,20 @@ export const HAPTIC_SINGLE_PULSE_THRESHOLD = 0.5;
 
 // ── YOLO Model ─────────────────────────────────────────────────────────
 export const YOLO_INPUT_SIZE = 640;
-export const YOLO_DEFAULT_CONF = 0.5;
+// Confidence sweep against `public/models/best.onnx` (docs/sprint-3-conf-sweep.json):
+// empirical F1 peak = 0.517 at conf 0.183. We pick 0.25 instead — 1.3% below peak
+// but with a precision bias (P=0.66 vs R=0.44) which is the right trade for
+// assistive alerts: false positives erode trust faster than misses (and tier-1
+// hazards still bypass the attention budget downstream).
+export const YOLO_DEFAULT_CONF = 0.25;
 export const YOLO_IOU_THRESHOLD = 0.45;
 export const YOLO_MODEL_PATH = '/models/best.onnx';
 
 // ── Distance Estimation ────────────────────────────────────────────────
 export const DEFAULT_OBJECT_HEIGHT_M = 0.50;
 export const CAMERA_VFOV_DEG = 70;
+export const MIN_CAMERA_VFOV_DEG = 40;
+export const MAX_CAMERA_VFOV_DEG = 120;
 
 // ── VLM (Slow Lane) ───────────────────────────────────────────────────
 export const VLM_TIMEOUT_MS = 60_000;       // allow cold Ollama starts without false timeouts
@@ -78,6 +85,27 @@ export const BEEP_GAIN = 0.3;
 export const QUICK_TTS_RATE = 1.3;
 export const QUICK_TTS_VOLUME = 0.8;
 
+// ── Hold-to-Talk Gesture ───────────────────────────────────────────────
+// Replaces the old "Voice Eye" wake word + continuous SpeechRecognition.
+// Press-and-hold for HOLD_TO_TALK_MS (2 s) locks in command mode;
+// pointerup before TAP_MAX_MS counts as a quick tap (fires the Slow Lane
+// describe). On lock-in App.tsx speaks "Listening" and only then opens
+// the mic — the device speaker is silent by the time SpeechRecognition
+// starts, so the prompt does not bleed back into the microphone.
+// After lock-in, the mic stays open for COMMAND_WINDOW_MS waiting for a
+// describe/read/find phrase; if no command arrives, the window closes
+// with a brief "Cancelled" cue + the COMMAND_CLOSED_TONE_HZ earcon.
+export const HOLD_TO_TALK_MS = 2000;
+export const TAP_MAX_MS = 250;
+export const COMMAND_WINDOW_MS = 8000;
+
+// Pitch used for the "command window closed without a match" earcon.
+// Distinct from BEEP_FREQUENCY_HZ (880) which fires on lock-in, and from
+// DEESCALATION_TONE_HZ (440) which fires when a danger track resolves —
+// 660 Hz sits between the two so the user can tell them apart by ear.
+export const COMMAND_CLOSED_TONE_HZ = 660;
+export const COMMAND_CLOSED_TONE_S = 0.12;
+
 // ── Bounding Box Rendering ─────────────────────────────────────────────
 export const BBOX_MIN_SCORE = 0.5;          // minimum score to render a bounding box
 
@@ -86,8 +114,9 @@ export const METRICS_BUFFER_SIZE = 100;
 export const METRICS_LOG_INTERVAL = 300;    // log every N frames
 
 // ── UI Messages ────────────────────────────────────────────────────────
-export const FULL_INTRO_MESSAGE = "Camera ready. Tap the screen, or say Voice Eye describe, Voice Eye read, or Voice Eye find followed by an object.";
+export const FULL_INTRO_MESSAGE = "Camera ready. Tap the screen to describe the scene, or press and hold to give a voice command.";
 export const SHORT_INTRO_MESSAGE = 'Ready';
+export const COMMAND_WINDOW_MESSAGE = 'Listening — say describe, read, or find something.';
 
 // ── Attention Pipeline ─────────────────────────────────────────────────
 import type { ProximityZone } from './utils/tracker';

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { InferenceSession } from 'onnxruntime-web';
 import { loadYoloModel, runYolo } from '../utils/yolo';
 import { type Track, updateTracks } from '../utils/tracker';
-import { estimateDistance } from '../utils/distance';
+import { estimateDistanceForSpeech } from '../utils/distance';
 import { inferenceMetrics } from '../utils/inferenceMetrics';
 import { createAttentionState, runAttention, type AttentionState, type Announcement } from '../utils/attention';
 import type { AppSettings } from '../components/SettingsPanel';
@@ -18,13 +18,18 @@ import {
 interface UseDetectionLoopOptions {
   videoElement: HTMLVideoElement | null;
   isProcessingSlowLane: boolean;
+  // True while the press-and-hold command window is open. When true, the
+  // Fast Lane suppresses per-frame TTS so SpeechRecognition can hear the
+  // user clearly. Tones (de-escalation) and haptics still fire — they
+  // don't bleed into the mic and remain useful safety cues.
+  isCommandWindowOpen: boolean;
   settings: AppSettings;
   speak: (text: string, onEnd?: () => void, rate?: number) => void;
   playBeep: (freq?: number, durationS?: number) => void;
 }
 
-function formatAnnouncement(ann: Announcement, frameHeight: number): string {
-  const dist = estimateDistance(ann.bbox[3], frameHeight, ann.class);
+function formatAnnouncement(ann: Announcement, frameHeight: number, verticalFovDeg: number): string {
+  const dist = estimateDistanceForSpeech(ann.bbox[3], frameHeight, ann.class, { verticalFovDeg });
   const distSuffix = dist ? `, ${dist}` : '';
 
   if (ann.kind === 'group') {
@@ -42,6 +47,7 @@ function formatAnnouncement(ann: Announcement, frameHeight: number): string {
 export function useDetectionLoop({
   videoElement,
   isProcessingSlowLane,
+  isCommandWindowOpen,
   settings,
   speak,
   playBeep,
@@ -52,6 +58,12 @@ export function useDetectionLoop({
   const attentionStateRef = useRef<AttentionState>(createAttentionState(performance.now()));
   const settingsRef = useRef(settings);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+
+  // The command-window flag is read from inside the rAF loop. A ref keeps
+  // the check stale-closure-free without forcing the entire loop effect to
+  // re-subscribe every time the user holds the screen.
+  const commandWindowOpenRef = useRef(isCommandWindowOpen);
+  useEffect(() => { commandWindowOpenRef.current = isCommandWindowOpen; }, [isCommandWindowOpen]);
 
   useEffect(() => {
     loadYoloModel(YOLO_MODEL_PATH)
@@ -111,9 +123,13 @@ export function useDetectionLoop({
             // Speak announcements — batched into one utterance per frame because
             // useSpatialAudio.speak() cancels any in-flight speech, which would
             // otherwise collapse the budget (K=3 in Normal) down to "last only".
-            if (out.toAnnounce.length > 0) {
+            //
+            // Skipped while the press-and-hold command window is open so the
+            // user's microphone is not fighting with Fast Lane TTS. Tones and
+            // haptics below still fire — they are silent on the mic channel.
+            if (out.toAnnounce.length > 0 && !commandWindowOpenRef.current) {
               const phrase = out.toAnnounce
-                .map(ann => formatAnnouncement(ann, vh))
+                .map(ann => formatAnnouncement(ann, vh, settingsRef.current.cameraVfovDeg))
                 .join('. ');
               speak(phrase, undefined, settingsRef.current.ttsRate);
             }

@@ -68,6 +68,92 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  /* Stops the browser from interpreting a long-press as a context menu /
+     text-selection callout / iOS magnifier — the hold-to-talk gesture
+     owns long-press now. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+/* Subtle global tint while the press-and-hold command window is open, so
+   sighted users see at a glance that the app is listening. The 'Listening'
+   badge in the header is still the primary signal — this is reinforcement. */
+.app-container.awaiting-command::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(16, 185, 129, 0.10),
+    transparent 60%
+  );
+  z-index: 5;
+  animation: listeningPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes listeningPulse {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1.0; }
+}
+
+/* ─── Press-and-hold progress ring ────────────────────────────────────────
+   Driven by the --hold-progress CSS variable (0..1) which useHoldToTalk
+   updates each animation frame.
+
+   The ring is hidden until --hold-progress passes a small grace threshold
+   so a normal short tap never flashes the ring. We use opacity (animated
+   from the data-active attribute) for the show/hide so the ring fades in
+   smoothly rather than popping. */
+.hold-progress-ring {
+  position: fixed;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+  z-index: 20;
+
+  background: conic-gradient(
+    var(--success, #10b981) calc(var(--hold-progress, 0) * 360deg),
+    rgba(255, 255, 255, 0.15) 0
+  );
+  -webkit-mask:
+    radial-gradient(circle, transparent 56px, #000 58px);
+  mask:
+    radial-gradient(circle, transparent 56px, #000 58px);
+}
+
+/* Only reveal the ring once the user is committed — past ~150 ms of
+   holding (a small grace at the start of HOLD_TO_TALK_MS = 2000 ms).
+   data-active is set as soon as useHoldToTalk has a non-zero progress;
+   the opacity step picks it up. */
+.hold-progress-ring[data-active='true'] {
+  opacity: 1;
+}
+
+.hold-progress-ring-inner {
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(6px);
+}
+
+.hold-progress-ring-label {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  font-weight: 500;
 }
 
 /* Camera Layers */
@@ -442,4 +528,41 @@ body {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+/* Keyboard-only focus ring — required for keyboard users to navigate the UI.
+   :focus-visible avoids the ring appearing on mouse/touch interactions. */
+*:focus { outline: none; }
+*:focus-visible {
+  outline: 3px solid #fbbf24;
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* Respect prefers-reduced-motion: cut decorative animations down to fades
+   so users with vestibular sensitivity aren't dragged through 600 ms
+   slide-and-scale transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .app-header,
+  .interaction-area,
+  .trigger-radar.scanning,
+  .trigger-button.listening,
+  .status-dot,
+  .settings-overlay,
+  .app-container.awaiting-command::after {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+  /* Reduced-motion fallback for the hold ring: static label, no animated
+     fill. The ring still shows the "Hold to talk" text so the cue is not
+     lost, just not animated. */
+  .hold-progress-ring {
+    background: rgba(255, 255, 255, 0.15);
+    transition: opacity 0ms;
+  }
 }
